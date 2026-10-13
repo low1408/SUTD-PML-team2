@@ -1,0 +1,50 @@
+# Local Python environments and generated package/build files.
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Test, notebook, and tool caches.
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.ipynb_checkpoints/
+.coverage
+.coverage.*
+htmlcov/
+
+# Patient data and experiment outputs (including HTML replays and screenshots).
+/data/
+/artifacts/
+# Guard against raw patient records or models saved outside those directories.
+*.psv
+*.part
+*.joblib
+*.pkl
+*.pickle
+
+# Local credentials and environment settings; templates can be shared.
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.template
+!.env.*.template
+/.aws/
+/.codex/
+
+# Temporary logs and operating-system metadata.
+*.log
+.DS_Store
+Thumbs.db
+
+# Supplied course brief is local reference material, not a project deliverable.
+# Do not ignore all PDFs: the team's final report should be versioned.
+/Project Instructions- PML 2026.pdf

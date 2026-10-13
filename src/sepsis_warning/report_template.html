@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sepsis warning | Research replay</title>
+<style>
+*{box-sizing:border-box}body{font:16px system-ui,sans-serif;color:#243345;background:#f3f6fa;margin:0;padding:32px}main{max-width:1100px;margin:auto}h1{font-size:30px;margin-bottom:8px}p{line-height:1.6}section{background:white;border:1px solid #dce3ed;border-radius:14px;padding:24px;margin-top:22px}.banner{padding:14px 18px;background:#fff4cc;border-radius:8px;font-weight:650}table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:12px;border-bottom:1px solid #e4e9f0}select{font:inherit;max-width:100%;padding:10px;margin-left:10px}svg{width:100%;display:block;height:auto}small{color:#54677d}#position{width:100%;margin-top:16px}.legend{display:flex;gap:20px;flex-wrap:wrap;font-size:14px}.blue{color:#2165b4}.orange{color:#aa4b16}.purple{color:#7751ad}#status{font-weight:600}button{font:inherit;background:#2165b4;color:white;border:0;border-radius:6px;padding:8px 15px;cursor:pointer}label{display:inline-block;margin:8px 0}.scroll{overflow:auto}
+</style>
+<main>
+<p><small>PRODUCTION READY ML / RESEARCH SCAFFOLD</small></p>
+<h1>Sepsis early-warning replay</h1>
+<p>Hourly predictions from a classical model, with a threshold and notification cooldown.</p>
+<div id="banner" class="banner"></div>
+<section><h2>Held-out evaluation</h2><p id="model"></p><div class="scroll"><table><thead><tr><th>Cohort</th><th>Patients</th><th>Avg. precision</th><th>Hourly utility</th><th>False alerts / nonseptic day</th><th>Early recall</th></tr></thead><tbody id="metrics"></tbody></table></div><p><small>The alarm budget is selected on hospital A validation patients. It may be exceeded in held-out cohorts. Lead time uses an inferred onset from shifted labels; retrospective labels are never prediction inputs.</small></p></section>
+<section><h2>Patient timeline</h2><label>Patient <select id="patient"></select></label> <button id="play">Play</button><p id="status"></p><svg id="chart" viewBox="0 0 1000 340" role="img" aria-label="Predicted probability over ICU hours"></svg><label for="position">Replay hour</label><input id="position" type="range" min="0" value="0"><div class="legend"><span class="blue">Blue: predicted probability</span><span class="orange">Orange dots: alert notifications</span><span class="purple">Purple area: retrospective positive-label window</span></div><p><small>The horizontal dashed line is the selected probability threshold. Replay reveals one hour at a time; the retrospective label window is shown for evaluation context.</small></p></section>
+</main>
+<script>
+const data = __PAYLOAD__;
+const $ = id => document.getElementById(id);
+const format = value => value == null ? 'n/a' : Number(value).toFixed(3);
+$('banner').textContent = data.synthetic ? 'SYNTHETIC SOFTWARE DEMO — these results are not clinical evidence.' : 'Retrospective research prototype — evaluated on PhysioNet records.';
+$('model').textContent = `Selected model: ${data.metrics.selected_model}. Threshold: ${format(data.threshold)}.`;
+for (const [name, values] of Object.entries(data.metrics.held_out)) {
+ const row = document.createElement('tr');
+ for (const value of [name,values.patients,format(values.average_precision),format(values.normalized_hourly_utility),format(values.false_alert_events_per_nonseptic_patient_day),format(values.early_detection_recall)]) { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); }
+ $('metrics').append(row);
+}
+data.patients.forEach((patient,index)=>{const option=document.createElement('option');option.value=index;option.textContent=`${patient.id} · ${patient.split} · ${patient.label.some(Boolean) ? 'eventual positive label' : 'no positive label'}`;$('patient').append(option);});
+const ns='http://www.w3.org/2000/svg';
+function shape(tag, attributes, text) {const element=document.createElementNS(ns,tag);Object.entries(attributes).forEach(([key,value])=>element.setAttribute(key,value));if(text!==undefined)element.textContent=text;$('chart').append(element);return element;}
+function render() {
+ const patient=data.patients[Number($('patient').value)], limit=Number($('position').value);
+ const count=patient.hour.length, x=i=>65+880*i/Math.max(1,count-1), y=p=>280-240*p;
+ $('chart').replaceChildren();
+ const first=patient.label.findIndex(Boolean);
+ if(first>=0)shape('rect',{x:x(first),y:40,width:945-x(first),height:240,fill:'#eee7f7'});
+ for(let p=0;p<=1;p+=0.25){shape('line',{x1:65,x2:945,y1:y(p),y2:y(p),stroke:'#dce3ed'});shape('text',{x:15,y:y(p)+5,fill:'#54677d','font-size':14},p.toFixed(2));}
+ if(data.threshold<=1)shape('line',{x1:65,x2:945,y1:y(data.threshold),y2:y(data.threshold),stroke:'#65738a','stroke-dasharray':'6 5'});
+ for(let i=0;i<count;i+=Math.max(1,Math.floor(count/8)))shape('text',{x:x(i),y:310,'text-anchor':'middle',fill:'#54677d','font-size':14},patient.hour[i]);
+ shape('text',{x:500,y:337,'text-anchor':'middle',fill:'#54677d','font-size':14},'Hours since ICU admission');
+ shape('polyline',{points:patient.probability.slice(0,limit+1).map((p,i)=>`${x(i)},${y(p)}`).join(' '),fill:'none',stroke:'#2165b4','stroke-width':3});
+ for(let i=0;i<=limit;i++)if(patient.alert[i])shape('circle',{cx:x(i),cy:y(patient.probability[i]),r:5,fill:'#aa4b16'});
+ shape('line',{x1:x(limit),x2:x(limit),y1:40,y2:280,stroke:'#99a7b8','stroke-dasharray':'3 4'});
+ $('status').textContent=`Hour ${patient.hour[limit]} · probability ${format(patient.probability[limit])} · ${patient.alert[limit] ? 'alert sent' : 'no new alert'}`;
+}
+let timer=null;
+function stop(){clearInterval(timer);timer=null;$('play').textContent='Play';}
+function selectPatient(){stop();$('position').max=data.patients[Number($('patient').value)].hour.length-1;$('position').value=0;render();}
+$('patient').addEventListener('change',selectPatient);
+$('position').addEventListener('input',()=>{stop();render();});
+$('play').addEventListener('click',()=>{if(timer){stop();return;}if(Number($('position').value)>=Number($('position').max))$('position').value=0;$('play').textContent='Pause';timer=setInterval(()=>{if(Number($('position').value)>=Number($('position').max)){stop();return;}$('position').value=Number($('position').value)+1;render();},180);});
+selectPatient();
+</script>
+</html>
