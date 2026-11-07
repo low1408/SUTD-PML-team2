@@ -24,6 +24,44 @@ Key data facts (from `docs/1.understand-training-data.md`, real data):
 - Heavy missingness: HR ~8%, Temp ~66%, Lactate ~97%, EtCO2 100% missing.
 - Features at hour t may only use hours ≤ t of the same patient (causal).
 
+### How sepsis is labelled (Sepsis-3, Reyna et al. 2020)
+The `MIT-LCP/physionet` repo is only a download tool; the labelling comes from
+the challenge paper. Organisers applied the **Sepsis-3** definition
+(**infection + organ damage**) to full hospital records:
+1. **Suspicion of infection** — antibiotic given + blood culture ordered close
+   together (antibiotic first → culture within 24 h; culture first → antibiotic
+   within 72 h). Earlier of the two = **t_suspicion**.
+2. **Organ damage** — **SOFA** score (lungs PaO2/FiO2, clotting platelets,
+   liver bilirubin, circulation MAP/vasopressors, brain GCS, kidneys
+   creatinine/urine) rises **≥ 2 points** between 48 h before and 24 h after
+   t_suspicion. That time = **t_SOFA**.
+3. **Onset t_sepsis = earlier of t_suspicion and t_SOFA.**
+4. **`SepsisLabel = 1` from t_sepsis − 6 h onwards**; 0 before; 0 always for
+   patients who never meet the definition.
+
+Hospitals: **A = Beth Israel Deaconess (Boston), B = Emory (Atlanta)**; a third
+hidden hospital is not public.
+
+The model **does not see** antibiotics, cultures, urine output, GCS or
+vasopressors (removed to avoid giving the answer away) — it must pick up
+physiological warning signs before clinicians act.
+
+**Why SIRS is the baseline:** SIRS is the older (1990s "Sepsis-1") bedside rule
+— easy to compute, many false alarms. Slide 8 story: *does our model beat the
+rule doctors already use?*
+
+**Limitations for the report:**
+- The label is computed from treatment timing, not a doctor's diagnosis, so it
+  partly reflects how fast each hospital orders tests/antibiotics — this may
+  differ between A and B (link to the A-vs-B exploration).
+- Stays positive from their first row started sepsis before the ICU stay; onset
+  unknown → excluded from lead-time analysis.
+- ~7% of stays ever septic, ~2% of hours positive.
+
+**Cite:** Reyna et al., "Early Prediction of Sepsis From Clinical Data: The
+PhysioNet/Computing in Cardiology Challenge 2019", *Critical Care Medicine*,
+2020; Singer et al., Sepsis-3, *JAMA*, 2016.
+
 ## 2. Course rules (from the prof's brief + class)
 
 | Rule | Meaning |
