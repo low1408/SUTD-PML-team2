@@ -104,6 +104,7 @@ and `sirs-failures`. `train`, `missingness` and the monitoring commands read the
 | `dvc pull` says files are missing | OneDrive has not finished downloading. Wait for the green ticks (step 5) and try again. |
 | DVC says no remote is set | Redo step 7. |
 | Files look wrong | Compare the SHA-256 values with the table above. |
+| SharePoint says "Can't preview this file", or the files have long codes for names | This is normal. DVC stores each file under its fingerprint, with no `.csv` or `.parquet` ending, so SharePoint and Excel can't open them. Don't open or download them by hand. Run `dvc pull` and use the copies in `data/physionet/`. |
 
 Please do not rename, move or delete anything inside `dvc-storage`. Folder names such as
 `91` and `5e` are how DVC stores the files.
