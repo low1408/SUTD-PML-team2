@@ -29,6 +29,7 @@ from .tracking import check_tracking_uri, log_run, require_mlflow, run_metadata
 from .schema import extreme_value_counts, validate_hourly
 from .sirs_failures import failure_tables
 from .splits import load_split_patients, write_splits
+from .tracking import check_tracking_uri, log_run, require_mlflow, run_metadata
 
 
 def write_json(path, value):
@@ -261,6 +262,28 @@ def run_validate(args):
 
 DATA_HELP = "combined.parquet (uses the saved split), or a folder of training_setA/B (re-splits with --seed)"
 SPLITS_HELP = "Saved split for a Parquet --data; defaults to splits.csv next to it"
+
+
+def run_server(args):
+    if args.host not in ("127.0.0.1", "localhost", "::1") and not args.allow_non_local_host:
+        raise ValueError(f"--host {args.host} exposes an unauthenticated API; pass --allow-non-local-host if agreed")
+    try:
+        import uvicorn
+
+        from .api import create_app
+    except ImportError as error:
+        raise RuntimeError("the API needs the serve extra; run `pip install -e .[serve]`") from error
+    from .service import ModelMismatch, ScoringService
+
+    try:
+        service = ScoringService.from_path(args.model, args.model_sha256)
+    except ModelMismatch as error:
+        raise ValueError(str(error)) from error
+    health = service.health()
+    print(f"Serving {health['model_name']} (bundle {health['bundle_sha256'][:12]}) on {args.host}:{args.port}", flush=True)
+    if health["synthetic_model"]:
+        print("WARNING: synthetic fixture model; scores are meaningless", flush=True)
+    uvicorn.run(create_app(service), host=args.host, port=args.port, workers=1)
 
 
 def main():
