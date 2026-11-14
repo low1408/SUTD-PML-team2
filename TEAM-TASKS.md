@@ -67,7 +67,7 @@ Slide numbers follow the 22-slide deck in `docs/presentation/` (see its README f
 |---|---|---|---|---|---|
 | H01 | HMM forward-pass states | Not started | - | - | - |
 | H02 | Signature features | Not started | - | - | - |
-| H03 | With / without tests | Not started | - | - | - |
+| H03 | With / without tests | In review | - | 2026-11-14 | PR #71: `scripts/h03_ablation.py` runs arms A-D from [docs/h03-ablation-plan.md](docs/h03-ablation-plan.md) (train/calibration/validation only); metrics and paired bootstrap in `ablation.py`, 20 tests (`tests/test_ablation.py`). Real-data trial with `--limit 300` runs end to end. Full-cohort run pending: needs more than 8 GB RAM. |
 | H04 | Optional: GMM | Not started | - | - | - |
 | H05 | Optional: GRU | Not started | - | - | - |
 | H06 | Prepare slide 14 | Not started | - | - | - |

@@ -1,7 +1,7 @@
 # H03: with/without ablation plan for the HMM and signature features
 
-Owner: Josh. Status: **plan only, not yet run.** Running it needs the NumPy
-logistic regression from K01. Results go on slide 14 (H06).
+Owner: Josh. Status: **script ready (PR #71), full-cohort run pending.** Run it with
+`scripts/h03_ablation.py`. Results go on slide 14 (H06).
 
 ## Question
 
@@ -78,10 +78,18 @@ limitations. If the temporal features do not help, the slide says so.
 
 ## Dependencies
 
-| Needed | Owner | Status on 12 Nov |
+| Needed | Owner | Status on 14 Nov |
 |---|---|---|
-| NumPy logistic regression (K01) | Kaiyuan | Not started; blocks the run |
-| Calibration and threshold (K04, K05) | Kaiyuan | Not started |
+| NumPy logistic regression (K01) | Kaiyuan | Merged (PR #68, module `logistic.py`) |
+| Calibration and threshold (K04, K05) | Kaiyuan | Platt calibration merged (PR #68); threshold uses `tune_threshold` |
 | `summarize()` metrics without scikit-learn, if the library ban covers metrics | To agree | `policy.py` still imports scikit-learn metrics |
 | HMM features (H01) | Josh | Merged (PR #60) |
-| Signature features (H02) | Josh | In review (PR #63) |
+| Signature features (H02) | Josh | Merged (PR #63) |
+| Memory for the full run | Josh | `NumpyLogisticRegression` peaks around 6 GB on the full train split; needs a machine with more than 8 GB RAM, or a float32 change to `logistic.py` |
+
+## Open decision: J02 fallback
+
+Applying the J02 training-median fallback to raw values before `features_for_windows`
+makes `__missing_now`, `__never_seen` and `__hours_since_seen` constant. The script
+leaves it off by default (the model's training-only median imputer fills gaps) and
+`--fallback` turns it on. Either way it is the same in every arm. To agree with the team.
