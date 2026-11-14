@@ -1,0 +1,58 @@
+# Local stand-in for the AWS stack in infra/cloudformation (see docs/local-production.md).
+#
+#   AWS                                   Here
+#   internal ALB, HTTP 80, /health check  HAProxy "alb" on 127.0.0.1:${ALB_PORT:-8080}, round robin
+#   ECS Fargate task, 0.5 vCPU, 1 GB      api-a and api-b: 0.5 CPU, 1 GB, x86_64, read-only root
+#   two private subnets, no public IP     "private" network with no internet route; no published ports
+#   S3 models/ prefix, KMS, task role     approved bundle staged read-only by scripts/local_prod.sh
+#   CloudWatch Logs                       docker compose logs (size-capped json-file)
+#
+# Start it with scripts/local_prod.sh, which stages the model and fills in MODEL_SHA256.
+
+name: sepsis-local
+
+x-api: &api
+  image: ${IMAGE:-sepsis-warning:local}        # built from the repo Dockerfile by scripts/local_prod.sh
+  platform: ${PLATFORM:-linux/amd64}          # Fargate RuntimePlatform X86_64
+  command: ["--model", "/models/model.joblib", "--model-sha256", "${MODEL_SHA256:?run scripts/local_prod.sh}"]
+  volumes:
+    - ${MODEL_DIR:?run scripts/local_prod.sh}:/models:ro
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  cpus: 0.5
+  mem_limit: 1g
+  networks: [private]
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+  labels:
+    sepsis.model_version: ${MODEL_VERSION:-unknown}
+
+services:
+  api-a:
+    <<: *api
+  api-b:
+    <<: *api
+
+  alb:
+    image: ${HAPROXY_IMAGE:-mirror.gcr.io/library/haproxy:3.0-alpine}
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    healthcheck:
+      test: ["CMD", "haproxy", "-c", "-q", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      interval: 10s
+    ports:
+      - "127.0.0.1:${ALB_PORT:-8080}:80"     # reachable from this machine only, like an internal ALB
+    networks: [private, edge]
+    depends_on:
+      api-a: {condition: service_healthy}
+      api-b: {condition: service_healthy}
+    restart: unless-stopped
+
+networks:
+  private:
+    internal: true                            # no route out, like private subnets without a NAT gateway
+  edge: {}

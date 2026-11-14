@@ -268,23 +268,31 @@ def run_server(args):
         from .api import create_app
     except ImportError as error:
         raise RuntimeError("the API needs the serve extra; run `pip install -e .[serve]`") from error
+    from .model_card import card_from_run_dir
     from .service import ModelMismatch, ScoringService
 
-    model_path, expected = args.model, args.model_sha256
+    model_path, expected, registry = args.model, args.model_sha256, None
     if args.model_uri:
         from .registry import resolve_model
 
         model_path, expected, tags = resolve_model(args.model_uri, args.mlflow_uri)
+        registry = {"model_uri": args.model_uri, "version": tags["version"],
+                    "reviewed_by": tags.get("production_reviewed_by"), "promoted_at": tags.get("production_promoted_at")}
         print(f"Resolved {args.model_uri} to version {tags['version']} (bundle {expected[:12]})", flush=True)
     try:
         service = ScoringService.from_path(model_path, expected)
-    except ModelMismatch as error:
+        card = card_from_run_dir(Path(model_path).parent, service.bundle, registry)
+    except (ModelMismatch, ValueError) as error:
         raise ValueError(str(error)) from error
     health = service.health()
     print(f"Serving {health['model_name']} (bundle {health['bundle_sha256'][:12]}) on {args.host}:{args.port}", flush=True)
+    if card is None:
+        print("No selection files next to the bundle; GET /model will not show the selection", flush=True)
     if health["synthetic_model"]:
         print("WARNING: synthetic fixture model; scores are meaningless", flush=True)
-    uvicorn.run(create_app(service), host=args.host, port=args.port, workers=1)
+    uvicorn.run(create_app(service, card), host=args.host, port=args.port, workers=1)
+
+
 def run_sirs_failures(args):
     """Aggregate SIRS failure patterns. Validation split only, by design."""
     cohorts, _ = load_cohorts(args)

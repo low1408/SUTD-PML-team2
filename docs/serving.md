@@ -105,3 +105,6 @@ What this shows:
 No numeric latency target has been agreed, so these are measurements, not a
 pass or fail. Numbers will differ on other hardware and with the final NumPy
 model.
+
+For the full AWS layout on one machine (load balancer, two tasks, private network,
+rolling deploy), see [local-production.md](local-production.md).

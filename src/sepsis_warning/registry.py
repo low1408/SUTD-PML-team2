@@ -13,7 +13,8 @@ Needs the optional ``tracking`` extra and a local SQLite store
   version it replaced so a rollback is one more ``promote``.
 * ``resolve_model`` turns ``models:/sepsis-warning@production`` (or
   ``models:/sepsis-warning/3``) into a local bundle path plus its expected
-  SHA-256, which ``serve`` checks before loading.
+  SHA-256, which ``serve`` checks before loading. The selection run's
+  validation summary is downloaded next to the bundle for the API's model card.
 
 Joblib files can run code when loaded, so a bundle is only loaded after its
 hash matches the one recorded when it was registered. Everything stays in the
@@ -172,4 +173,22 @@ def resolve_model(model_uri: str, tracking_uri: str, download_dir: Path | None =
     matches = list(local.rglob(BUNDLE_FILE))
     if len(matches) != 1:
         raise ValueError(f"expected one {BUNDLE_FILE} in {name} version {found.version}, found {len(matches)}")
+    _download_selection_files(found.run_id, matches[0].parent)
     return matches[0], expected, {"version": str(found.version), **found.tags}
+
+
+SELECTION_FILES = ("selection_metrics.json", "run_metadata.json")
+
+
+def _download_selection_files(run_id: str | None, target: Path) -> None:
+    """Copy the selection run's validation summary next to the bundle, for the API's model card.
+
+    Skipped quietly when the version was registered without a logged selection run.
+    """
+    if not run_id:
+        return
+    for name in SELECTION_FILES:
+        try:
+            mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path=name, dst_path=str(target))
+        except (mlflow.exceptions.MlflowException, OSError):
+            continue

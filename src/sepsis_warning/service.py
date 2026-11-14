@@ -34,6 +34,7 @@ INPUT_COLUMNS = DYNAMIC + STATIC
 # Present in PhysioNet files but never model inputs.
 REJECTED_COLUMNS = {"SepsisLabel", "Unit1", "Unit2", "patient_id", "hospital"}
 MAX_HOURS = 1000
+MAX_STAYS = 64  # one ward per request
 PATIENT_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 DISCLAIMER = "Research scores on a benchmark label; not clinically validated and not for patient care."
 
@@ -154,5 +155,49 @@ class ScoringService:
                 }
                 for row in table.itertuples(index=False)
             ],
+            "disclaimer": DISCLAIMER,
+        }
+
+    def predict(self, stays) -> dict:
+        """Current risk for several stays at once (a ward), one entry per stay.
+
+        Each stay carries its full history, exactly as for ``score``; the answer
+        is for its latest hour. ``new_alert`` is true only in the hour an alert
+        fires, so a caller polling every hour notifies once per alert.
+        """
+        if not isinstance(stays, list) or not stays:
+            raise InvalidInput("stays must be a non-empty list")
+        if len(stays) > MAX_STAYS:
+            raise InvalidInput(f"at most {MAX_STAYS} stays per request")
+        ids = [stay.get("patient_id") if isinstance(stay, dict) else None for stay in stays]
+        duplicates = sorted({i for i in ids if isinstance(i, str) and ids.count(i) > 1})
+        if duplicates:
+            raise InvalidInput(f"patient_id values must be unique in one request: {duplicates[:5]}")
+        predictions = []
+        for index, stay in enumerate(stays):
+            if not isinstance(stay, dict):
+                raise InvalidInput(f"stays[{index}] must be an object")
+            try:
+                scored = self.score(stay.get("patient_id"), stay.get("hours"))
+            except InvalidInput as error:
+                raise InvalidInput(f"stays[{index}]: {error}") from error
+            hours = scored["hours"]
+            latest = hours[-1]
+            alerts = [h["hour"] for h in hours if h["alert_event"]]
+            predictions.append({
+                "patient_id": scored["patient_id"],
+                "hour": latest["hour"],
+                "hours_scored": len(hours),
+                "probability": latest["probability"],
+                "above_threshold": bool(latest["hourly_positive"]),
+                "new_alert": bool(latest["alert_event"]),
+                "last_alert_hour": alerts[-1] if alerts else None,
+            })
+        return {
+            "model_name": self.bundle["model_name"],
+            "synthetic_model": bool(self.bundle["synthetic"]),
+            "threshold": float(self.bundle["threshold"]),
+            "cooldown_hours": int(self.bundle["cooldown"]),
+            "predictions": predictions,
             "disclaimer": DISCLAIMER,
         }

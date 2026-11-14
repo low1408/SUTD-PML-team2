@@ -122,6 +122,13 @@ class Registry(unittest.TestCase):
         self.assertEqual(ScoringService.from_path(path, expected).health()["bundle_sha256"], expected)
         with self.assertRaises(ModelMismatch):
             ScoringService.from_path(path, "0" * 64)
+        # The selection run's validation summary comes along for GET /model.
+        from sepsis_warning.model_card import card_from_run_dir
+
+        card = card_from_run_dir(path.parent, ScoringService.from_path(path, expected).bundle)
+        self.assertEqual(card["selected_model"],
+                         json.loads((self.run_dir / "metrics.json").read_text())["selected_model"])
+        self.assertFalse((path.parent / "metrics.json").exists())
         with self.assertRaises(ValueError):
             resolve_model("runs:/abc/model", self.uri)
 

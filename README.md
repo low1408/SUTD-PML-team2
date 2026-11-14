@@ -63,6 +63,85 @@ python -m sepsis_warning demo --data data/demo2 --output artifacts/demo2 --seed 
 The Codex workspace currently has an already-installed `.venv`; the commands
 above are the portable setup for teammates.
 
+## Test the whole pipeline locally (macOS or Linux)
+
+Train, select, register, review, serve and call the model on synthetic data,
+then run the production-like stack. Needs Python 3.12+ (`brew install
+python@3.12` on a Mac) and, for steps 8-9, Docker Desktop.
+
+```bash
+# 1. Set up
+git clone https://github.com/low1408/SUTD-PML-team2.git && cd SUTD-PML-team2
+python3.12 -m venv .venv && source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[serve,test,tracking]"
+
+# 2. Tests (about 2-3 minutes)
+MPLBACKEND=Agg python -m unittest discover -s tests
+
+# 3. Train every candidate, select one on validation, register it as @candidate
+python -m sepsis_warning demo --output artifacts/demo \
+  --mlflow-uri sqlite:///artifacts/mlflow.db --register-model
+open artifacts/demo/replay.html                   # xdg-open on Linux
+
+# 4. Look at the selection: one parent run, one nested run per candidate (second terminal)
+mlflow ui --backend-store-uri sqlite:///artifacts/mlflow.db --port 5001   # http://127.0.0.1:5001
+
+# 5. Review, then promote the selected version to @production
+python -m sepsis_warning promote --version 1 --reviewed-by "Your Name"
+
+# 6. Serve the production model (checks its SHA-256 first); leave it running
+python -m sepsis_warning serve --model-uri models:/sepsis-warning@production
+```
+
+In another terminal (with `source .venv/bin/activate`):
+
+```bash
+# 7. Call the prediction API
+curl -s localhost:8000/health
+curl -s localhost:8000/model                      # selected model, why, all candidates (validation only)
+curl -s localhost:8000/score -H 'content-type: application/json' \
+  -d '{"patient_id": "bed-1", "hours": [{"ICULOS": 1, "HR": 92}, {"ICULOS": 2, "HR": 118, "Temp": 38.9}]}'
+curl -s localhost:8000/predict -H 'content-type: application/json' \
+  -d '{"stays": [{"patient_id": "bed-1", "hours": [{"ICULOS": 1, "HR": 92}, {"ICULOS": 2, "HR": 118, "Temp": 38.9}]},
+                 {"patient_id": "bed-2", "hours": [{"ICULOS": 1, "HR": 75}]}]}'
+open http://127.0.0.1:8000/docs                   # interactive API docs
+python scripts/latency.py --url http://127.0.0.1:8000 --output artifacts/latency.json
+python -m sepsis_warning ward --api-url http://127.0.0.1:8000 --data data/synthetic \
+  --output artifacts/ward/ward-api.html && open artifacts/ward/ward-api.html
+```
+
+Stop the server (Ctrl+C), then run the production-like stack: a load balancer,
+two Fargate-sized tasks on a private network and the `@production` model
+([docs/local-production.md](docs/local-production.md)).
+
+```bash
+# 8. Start it and run the production checks
+bash scripts/local_prod.sh up                     # http://127.0.0.1:8080
+bash scripts/local_prod.sh test
+
+# 9. Release a second version with a rolling update, then roll back
+python -m sepsis_warning train --data data/synthetic --output artifacts/run-002 --seed 43 \
+  --mlflow-uri sqlite:///artifacts/mlflow.db --register-model
+python -m sepsis_warning promote --version 2 --reviewed-by "Your Name"
+bash scripts/local_prod.sh deploy models:/sepsis-warning@production
+bash scripts/local_prod.sh deploy models:/sepsis-warning/1
+bash scripts/local_prod.sh down
+```
+
+Notes:
+
+- On an Apple Silicon Mac, `PLATFORM=linux/arm64 bash scripts/local_prod.sh up`
+  is much faster; the default `linux/amd64` matches Fargate but runs emulated.
+- `demo` needs an empty data folder; to train again on the same synthetic data
+  use `train --data data/synthetic` with a new `--output`, as in step 9.
+- To serve straight after training without the registry:
+  `serve --model artifacts/demo/model.joblib` (`/model` still shows the selection).
+- Start over: `rm -rf artifacts data/synthetic`.
+- With real data, replace step 3 with the `train` command in
+  [Run tracking and the research API](#run-tracking-and-the-research-api-l01-l02).
+  Keep real data and models out of Git.
+
 ## Use real PhysioNet data
 
 Source: [PhysioNet Challenge 2019](https://physionet.org/content/challenge-2019/1.0.0/).
@@ -350,10 +429,21 @@ registry needs a database. Details in [docs/mlflow.md](docs/mlflow.md). Add
 ```bash
 pip install -e ".[serve]"
 python -m sepsis_warning serve --model artifacts/demo/model.joblib   # 127.0.0.1:8000
+python -m sepsis_warning serve --model-uri models:/sepsis-warning@production   # or from the registry
 curl -s localhost:8000/health
 curl -s localhost:8000/score -H 'content-type: application/json' \
   -d '{"patient_id": "demo-1", "hours": [{"ICULOS": 1, "HR": 92}, {"ICULOS": 2, "HR": 101, "Temp": 38.4}]}'
 ```
+
+| Endpoint | Input | Output |
+|---|---|---|
+| `GET /health` | none | Status and the loaded bundle: model, hash, threshold, cooldown, feature count |
+| `GET /model` | none | The selected model, the selection rule and every candidate's validation metrics, the training fingerprints, and the registry version and reviewer when served from the registry. Never held-out test results |
+| `POST /score` | One stay's full history | A probability, threshold crossing and alert flag for every hour |
+| `POST /predict` | Up to 64 stays (a ward), each with its full history | For each stay, its latest hour: probability, whether it is above the threshold, `new_alert` (true only in the hour an alert fires, so hourly polling notifies once) and the last alert hour |
+
+`/docs` serves interactive documentation. `serve` refuses to start if the run
+folder's selection files describe a different model or threshold from the bundle.
 
 Each request sends one stay's full history from its first ICU hour; the server
 keeps no state between requests. Missing fields mean "not measured". Labels,
@@ -361,6 +451,14 @@ unit codes and hospital IDs are rejected (422). A bundle that does not fit the
 current feature code is refused at start-up or with 409. There is no
 authentication, so the command refuses non-local hosts unless
 `--allow-non-local-host` is passed. Scores are research output, not clinical advice.
+
+To test the AWS layout on a laptop (load balancer, two Fargate-sized tasks on
+a private network, model from the registry's `@production` alias, rolling
+deploy and rollback), see [docs/local-production.md](docs/local-production.md):
+
+```bash
+bash scripts/local_prod.sh up && bash scripts/local_prod.sh test
+```
 
 ## Files and artifacts
 
