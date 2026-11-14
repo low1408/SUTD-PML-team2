@@ -5,6 +5,7 @@ import hashlib
 import importlib.metadata
 import json
 import platform
+import time
 from pathlib import Path
 
 import joblib
@@ -26,7 +27,7 @@ from .prepare import prepare_parquet, write_summary
 from .report import write_report
 from .scoring import load_bundle
 from .splits import write_splits
-from .tracking import check_tracking_uri, log_run, require_mlflow, run_metadata
+from .tracking import DEFAULT_TRACKING_URI, check_tracking_uri, log_run, require_mlflow, run_metadata
 from .ward import (
     HELD_OUT_SPLITS, SELECTION_SPLITS, build_payload, check_split, choose_stays,
     score_locally, score_via_api, write_ward,
@@ -66,6 +67,23 @@ def load_cohorts(args):
     return cohorts, synthetic
 
 
+def candidate_details(estimator, seconds) -> dict:
+    """What MLflow records per candidate: implementation, settings, fit time, loss curve."""
+    final = estimator[-1] if hasattr(estimator, "steps") else estimator
+    module = type(final).__module__
+    implementation = "numpy" if module.startswith("sepsis_warning") else (
+        "reference" if module.startswith("sklearn.dummy") else "sklearn")
+    if hasattr(final, "get_params"):
+        params = final.get_params(deep=False)
+    else:
+        params = {key: value for key, value in vars(final).items() if not key.endswith("_")}
+    params = {key: value for key, value in params.items() if isinstance(value, (int, float, str, bool, type(None)))}
+    history = getattr(final, "loss_history_", None)
+    return {"implementation": implementation, "class": type(final).__name__, "params": params,
+            "fit_seconds": round(seconds, 3),
+            "loss_history": [float(value) for value in history] if history is not None else None}
+
+
 def run_experiment(args):
     if args.output.exists() and any(args.output.iterdir()):
         raise ValueError(f"{args.output} is not empty; use a new output directory")
@@ -97,12 +115,15 @@ def run_experiment(args):
     columns = [c for c in tables["train"] if c not in META]
     comparisons = []
     fitted = {}
+    details = {}
     for name, estimator in candidate_models(args.seed).items():
         print(f"Training {name}...", flush=True)
+        started = time.perf_counter()
         with threadpool_limits(limits=2):
             model = fit_calibrated(estimator, tables["train"], tables["calibration"], columns, is_constant=name == "constant_prior")
             validation = tables["validation"][META].copy()
             validation["probability"] = model.predict_proba(tables["validation"][columns])[:, 1]
+        details[name] = candidate_details(estimator, time.perf_counter() - started)
         metrics = tune_threshold(validation, args.budget, args.cooldown)
         comparisons.append({"model": name, **metrics})
         fitted[name] = model
@@ -112,6 +133,7 @@ def run_experiment(args):
     ))
     name, threshold = selected["model"], selected["threshold"]
     pd.DataFrame(comparisons).to_csv(args.output / "validation_models.csv", index=False)
+    write_json(args.output / "candidate_details.json", details)
     bundle = {
         "model": fitted[name], "model_name": name, "feature_columns": columns,
         "window": args.window, "threshold": threshold, "cooldown": args.cooldown,
@@ -168,6 +190,12 @@ def run_experiment(args):
     if args.mlflow_uri:
         run_id = log_run(args.output, args.mlflow_uri)
         print(f"MLflow run: {run_id}", flush=True)
+        if args.register_model:
+            from .registry import MODEL_NAME, register_bundle
+
+            version = register_bundle(args.output, args.mlflow_uri, run_id)
+            print(f"Registered {MODEL_NAME} version {version} as @candidate "
+                  f"(models:/{MODEL_NAME}@candidate). Promote only after review.", flush=True)
 
 
 BASELINE_SPLITS = ["validation", "internal_test", "external_test"]
@@ -242,8 +270,14 @@ def run_server(args):
         raise RuntimeError("the API needs the serve extra; run `pip install -e .[serve]`") from error
     from .service import ModelMismatch, ScoringService
 
+    model_path, expected = args.model, args.model_sha256
+    if args.model_uri:
+        from .registry import resolve_model
+
+        model_path, expected, tags = resolve_model(args.model_uri, args.mlflow_uri)
+        print(f"Resolved {args.model_uri} to version {tags['version']} (bundle {expected[:12]})", flush=True)
     try:
-        service = ScoringService.from_path(args.model, args.model_sha256)
+        service = ScoringService.from_path(model_path, expected)
     except ModelMismatch as error:
         raise ValueError(str(error)) from error
     health = service.health()
@@ -336,7 +370,11 @@ def main():
         command.add_argument("--dvc-lock", type=Path, default=None, help="dvc.lock whose output hashes are logged")
         command.add_argument(
             "--mlflow-uri", default=None,
-            help="Local MLflow store, e.g. file:artifacts/mlruns (needs the tracking extra)",
+            help=f"Local MLflow store, e.g. {DEFAULT_TRACKING_URI} (needs the tracking extra)",
+        )
+        command.add_argument(
+            "--register-model", action="store_true",
+            help="Also register the selected bundle in the MLflow registry as @candidate (needs --mlflow-uri)",
         )
     replay = sub.add_parser("replay", help="Score a patient PSV with a saved model")
     replay.add_argument("--model", type=Path, required=True)
@@ -422,7 +460,11 @@ def main():
     monitor_replay.add_argument("--split", choices=REPLAY_SPLITS, default="external_test")
     monitor_replay.add_argument("--output", type=Path, default=Path("artifacts/monitoring/replay"))
     serve = sub.add_parser("serve", help="Local research scoring API for a saved model (needs the serve extra)")
-    serve.add_argument("--model", type=Path, required=True, help="model.joblib produced by train/demo")
+    serve_source = serve.add_mutually_exclusive_group(required=True)
+    serve_source.add_argument("--model", type=Path, help="model.joblib produced by train/demo")
+    serve_source.add_argument("--model-uri", default=None,
+                              help="Registered model, e.g. models:/sepsis-warning@production (needs the tracking extra)")
+    serve.add_argument("--mlflow-uri", default=DEFAULT_TRACKING_URI, help="Local MLflow store holding --model-uri")
     serve.add_argument("--model-sha256", default=None, help="Refuse to start unless the bundle has this SHA-256")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -444,8 +486,16 @@ def main():
     ward.add_argument("--max-hours", type=int, default=72, help="Hours shown per stay")
     ward.add_argument("--seed", type=int, default=42)
     ward.add_argument("--output", type=Path, default=Path("artifacts/ward/ward.html"))
+    promote_cmd = sub.add_parser(
+        "promote", help="Point a registry alias (default production) at a reviewed model version")
+    promote_cmd.add_argument("--version", required=True, help="Model version number to promote")
+    promote_cmd.add_argument("--reviewed-by", required=True, help="Name of the teammate who reviewed this version")
+    promote_cmd.add_argument("--alias", default="production")
+    promote_cmd.add_argument("--mlflow-uri", default=DEFAULT_TRACKING_URI)
     args = parser.parse_args()
     try:
+        if args.command in ["demo", "train"] and args.register_model and not args.mlflow_uri:
+            raise ValueError("--register-model needs --mlflow-uri, e.g. " + DEFAULT_TRACKING_URI)
         if args.command in ["demo", "train"] and args.mlflow_uri:
             # Fail before generating data or training, not after it.
             check_tracking_uri(args.mlflow_uri)
@@ -471,6 +521,16 @@ def main():
             print(args.output.resolve())
         elif args.command == "serve":
             run_server(args)
+        elif args.command == "promote":
+            require_mlflow()
+            from .registry import MODEL_NAME, promote
+
+            change = promote(args.mlflow_uri, args.version, args.reviewed_by, alias=args.alias)
+            print(f"{MODEL_NAME}@{change['alias']} -> version {change['version']} "
+                  f"(was {change['previous'] or 'unset'}; reviewed by {change['reviewed_by']})", flush=True)
+            if change["previous"]:
+                print(f"Roll back with: python -m sepsis_warning promote --version {change['previous']} "
+                      f"--alias {change['alias']} --reviewed-by <name>", flush=True)
         elif args.command == "ward":
             if not args.model and not args.api_url:
                 raise ValueError("pass --model, or --api-url for a running API")

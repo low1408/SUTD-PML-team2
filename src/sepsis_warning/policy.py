@@ -51,6 +51,44 @@ def utility_components(labels):
     return np.where(delta <= 3, positive, 0), np.where(delta <= 3, negative, 0)
 
 
+def utility_training_targets(table, normalize=True):
+    """Turn the hourly utility into a weighted classification problem.
+
+    For every row this returns the decision the utility prefers at that hour
+    (``target``: 1 = alarm) and how much utility is lost by deciding the other
+    way (``weight``). For any set of hourly decisions,
+
+        sum(weight * (decision != target)) == best utility - achieved utility,
+
+    so a classifier that minimises weighted error on these targets is
+    minimising utility regret. Three things differ from training on ``label``
+    with balanced class weights:
+
+    * Hours 7 to 11 before onset are targets (an early alarm is rewarded there)
+      although the six-hour-shifted label is still 0.
+    * Hours more than three after onset have weight 0, as do the hours exactly
+      12 before onset; the utility ignores them.
+    * A false alarm costs 0.05 while a missed septic hour costs up to 2, which
+      takes the place of class weighting. Fit with ``class_weight=None``.
+
+    Uses labels, so call it on training rows only. ``normalize`` rescales the
+    weights to mean 1 so regularisation settings keep their meaning. Returns
+    arrays aligned with the rows of ``table``.
+    """
+    labels = table["label"].to_numpy()
+    hours = table["hour"].to_numpy()
+    target = np.zeros(len(table), dtype=int)
+    weight = np.zeros(len(table))
+    for rows in table.groupby("patient_id", sort=False).indices.values():
+        rows = rows[np.argsort(hours[rows], kind="stable")]
+        positive, negative = utility_components(labels[rows])
+        target[rows] = positive > negative
+        weight[rows] = np.abs(positive - negative)
+    if normalize and weight.sum() > 0:
+        weight = weight / weight.mean()
+    return target, weight
+
+
 # Stated timing workload: 500 stays of 48 hours. This is not a speed limit.
 UTILITY_BENCHMARK_PATIENTS = 500
 UTILITY_BENCHMARK_HOURS = 48

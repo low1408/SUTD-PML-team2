@@ -330,15 +330,22 @@ hash, git commit and package versions. Pass the split summary so the split's
 seed and hashes are logged too; a different seed is refused.
 
 ```bash
-python -m sepsis_warning train --data data/physionet --output artifacts/run-001 \
+pip install -e ".[tracking]"
+python -m sepsis_warning train --data data/physionet/combined.parquet --output artifacts/run-001 \
   --splits-summary data/physionet/splits.csv.summary.json \
-  --mlflow-uri file:artifacts/mlruns          # optional: pip install -e ".[tracking]"
+  --mlflow-uri sqlite:///artifacts/mlflow.db --register-model
 ```
 
-MLflow gets only aggregate files (`config.json`, `metrics.json`,
-`validation_models.csv`, `run_metadata.json`). Predictions, manifests, replay
-reports and `model.joblib` stay local. Only local stores are accepted. Add
-`--dvc-lock dvc.lock` once DVC is merged.
+MLflow gets a selection run: the fingerprints and the selected model's
+validation metrics, plus one nested run per candidate with its validation
+metrics, settings, fit time and training-loss curve. Held-out test results,
+predictions, manifests and replay reports are never logged. `--register-model`
+also registers the selected bundle as a new version of `sepsis-warning` with the
+`@candidate` alias; `promote` moves `@production` after a named review, and
+`serve --model-uri models:/sepsis-warning@production` serves it after checking
+its SHA-256. Use the SQLite store: MLflow 3 refuses the old `file:` store and the
+registry needs a database. Details in [docs/mlflow.md](docs/mlflow.md). Add
+`--dvc-lock dvc.lock` to record the data version.
 
 ```bash
 pip install -e ".[serve]"

@@ -7,7 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from sepsis_warning.tracking import (
-    LOGGABLE_ARTIFACTS, check_tracking_uri, dvc_evidence, log_run, run_metadata, split_evidence,
+    LOGGABLE_ARTIFACTS,
+    check_tracking_uri,
+    dvc_evidence,
+    log_run,
+    run_metadata,
+    split_evidence,
 )
 
 try:
@@ -41,8 +46,9 @@ class FakeMlflow:
     def set_experiment(self, name):
         self.calls.append(("experiment", name))
 
-    def start_run(self):
+    def start_run(self, **kwargs):
         fake = self
+        self.calls.append(("run", kwargs))
 
         class Run:
             info = SimpleNamespace(run_id="run-1")
@@ -64,6 +70,9 @@ class FakeMlflow:
 
     def log_metrics(self, metrics):
         self.calls.append(("metrics", metrics))
+
+    def log_metric(self, name, value, step=None):
+        self.calls.append(("metric", (name, value, step)))
 
     def log_artifact(self, path):
         self.artifacts.append(Path(path).name)
@@ -141,21 +150,43 @@ class Tracking(unittest.TestCase):
         (run_dir / "run_metadata.json").write_text(json.dumps(self.metadata(splits_summary=write_summary(self.root))))
         (run_dir / "metrics.json").write_text(json.dumps({
             "selected_model": "logistic_regression", "threshold": 0.4,
+            "validation_models": [
+                {"model": "constant_prior", "auroc": 0.5, "threshold": 1.01, "median_inferred_lead_hours": None},
+                {"model": "logistic_regression", "auroc": 0.74, "average_precision": 0.1, "threshold": 0.4},
+            ],
             "held_out": {"internal_test": {"auroc": 0.7, "patients": 10, "median_inferred_lead_hours": None}},
+        }))
+        (run_dir / "candidate_details.json").write_text(json.dumps({
+            "logistic_regression": {"implementation": "numpy", "params": {"C": 0.3}, "fit_seconds": 1.5,
+                                    "loss_history": [3.0, 2.0, 1.5]},
         }))
         (run_dir / "config.json").write_text("{}")
         for private in ["held_out_predictions.csv", "split_manifest.csv", "replay.html", "model.joblib"]:
             (run_dir / private).write_text("private")
         fake = FakeMlflow()
         self.assertEqual(log_run(run_dir, "file:" + str(self.root / "mlruns"), mlflow_module=fake), "run-1")
-        self.assertEqual(set(fake.artifacts), {"config.json", "metrics.json", "run_metadata.json"})
+        self.assertEqual(set(fake.artifacts),
+                         {"config.json", "selection_metrics.json", "run_metadata.json", "candidate_details.json"})
         self.assertTrue(set(fake.artifacts) <= LOGGABLE_ARTIFACTS)
-        calls = dict(fake.calls)
-        self.assertEqual(calls["params"]["seed"], "42")
-        self.assertEqual(calls["params"]["splits_csv_sha256"], "b" * 64)
-        self.assertEqual(calls["metrics"]["internal_test.auroc"], 0.7)
-        self.assertNotIn("internal_test.median_inferred_lead_hours", calls["metrics"])
-        self.assertEqual(calls["tags"]["research_only"], "true")
+        selection = json.loads((run_dir / "selection_metrics.json").read_text())
+        self.assertNotIn("held_out", selection)
+        params = [value for kind, value in fake.calls if kind == "params"]
+        metrics = [value for kind, value in fake.calls if kind == "metrics"]
+        tags = [value for kind, value in fake.calls if kind == "tags"]
+        self.assertEqual(params[0]["seed"], "42")
+        self.assertEqual(params[0]["splits_csv_sha256"], "b" * 64)
+        self.assertEqual(metrics[0]["validation.auroc"], 0.74)
+        self.assertEqual(tags[0]["research_only"], "true")
+        # One nested run per candidate, and no held-out test metric anywhere.
+        nested = [value for kind, value in fake.calls if kind == "run" and value.get("nested")]
+        self.assertEqual([run["run_name"] for run in nested], ["constant_prior", "logistic_regression"])
+        for values in metrics:
+            self.assertFalse(any("internal_test" in key or "external_test" in key for key in values))
+        self.assertNotIn("validation.median_inferred_lead_hours", metrics[1])
+        self.assertEqual(metrics[2]["fit_seconds"], 1.5)
+        self.assertEqual(params[2]["model.C"], "0.3")
+        curve = [value for kind, value in fake.calls if kind == "metric"]
+        self.assertEqual(curve, [("training_loss", 3.0, 0), ("training_loss", 2.0, 1), ("training_loss", 1.5, 2)])
 
     def test_log_run_refuses_a_remote_store_before_reading_anything(self):
         fake = FakeMlflow()
