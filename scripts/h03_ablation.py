@@ -13,8 +13,7 @@ Only `train`, `calibration` and `validation` are read. Internal and external
 test stays are never featurised or scored. Writes aggregate results only (no
 patient-level predictions) to --output, and refuses to overwrite.
 
-Needs sepsis_warning.numpy_models (K01/K04, branch kaiyuan/model-from-scratch)
-and an HMM fitted on train by scripts/fit_hmm.py. Use --limit 300 for a quick run.
+Needs an HMM fitted on train by scripts/fit_hmm.py. Use --limit 300 for a quick run.
 """
 
 import argparse
@@ -29,17 +28,10 @@ import pandas as pd
 from sepsis_warning.ablation import ARM_NAMES, ARMS, arm_columns, paired_bootstrap, score_table
 from sepsis_warning.features import apply_training_fallback, features_for_windows, fit_training_fallback
 from sepsis_warning.hmm import VITALS, hmm_state_features, load_hmm
+from sepsis_warning.logistic import NumpyLogisticRegression, calibrate_frozen
 from sepsis_warning.policy import tune_threshold
 from sepsis_warning.signature import WINDOW, fit_signature_scaler, signature_features
 from sepsis_warning.splits import load_split_patients
-
-try:
-    from sepsis_warning.numpy_models import NumpyLogisticRegression, calibrate_frozen
-except ImportError as error:  # K01 is not merged yet
-    raise SystemExit(
-        "sepsis_warning.numpy_models is missing. H03 needs the K01 NumPy logistic regression "
-        "(branch kaiyuan/model-from-scratch)."
-    ) from error
 
 SPLITS_USED = ("train", "calibration", "validation")
 WINDOWS = (3, 6, 12)
