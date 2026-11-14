@@ -14,6 +14,10 @@ test stays are never featurised or scored. Writes aggregate results only (no
 patient-level predictions) to --output, and refuses to overwrite.
 
 Needs an HMM fitted on train by scripts/fit_hmm.py. Use --limit 300 for a quick run.
+
+--model picks the classifier used in every arm: the K01 logistic regression
+(default), or the K02 random forest or K03 gradient boosting with their default
+settings. The C grid applies to the logistic regression only.
 """
 
 import argparse
@@ -29,13 +33,27 @@ from sepsis_warning.ablation import ARM_NAMES, ARMS, arm_columns, paired_bootstr
 from sepsis_warning.features import apply_training_fallback, features_for_windows, fit_training_fallback
 from sepsis_warning.hmm import VITALS, hmm_state_features, load_hmm
 from sepsis_warning.logistic import NumpyLogisticRegression, calibrate_frozen
+from sepsis_warning.gradient_boosting import NumpyGradientBoosting
 from sepsis_warning.policy import tune_threshold
+from sepsis_warning.random_forest import NumpyRandomForest
 from sepsis_warning.signature import WINDOW, fit_signature_scaler, signature_features
 from sepsis_warning.splits import load_split_patients
 
 SPLITS_USED = ("train", "calibration", "validation")
 WINDOWS = (3, 6, 12)
 GROUPS = ("shared", "hmm", "signature")
+MODELS = ("logistic", "random_forest", "gradient_boosting")
+
+
+def make_model(model, C, seed):
+    """A fresh, unfitted classifier; trees ignore C."""
+    if model == "logistic":
+        return NumpyLogisticRegression(C=C, class_weight="balanced")
+    if model == "random_forest":
+        return NumpyRandomForest(seed=seed)
+    if model == "gradient_boosting":
+        return NumpyGradientBoosting(seed=seed)
+    raise ValueError(f"unknown model {model}")
 
 
 def build_split(patients, hmm_model, scaler, fallback):
@@ -65,26 +83,29 @@ def build_split(patients, hmm_model, scaler, fallback):
     return pd.concat(chunks, ignore_index=True), seconds, (shared.columns, hmm.columns, signature.columns)
 
 
-def run_arm(arm, columns, tables, c_grid, budget, cooldown):
-    """Fit every C on train, calibrate on calibration, pick C by validation AUPRC."""
+def run_arm(arm, columns, tables, c_grid, budget, cooldown, model_name="logistic", seed=42):
+    """Fit every C on train, calibrate on calibration, pick C by validation AUPRC.
+
+    Trees have no C, so they are fitted once."""
     train, calibration, validation = (tables[name] for name in SPLITS_USED)
     tried = []
-    for C in c_grid:
+    for C in (c_grid if model_name == "logistic" else [None]):
         started = time.perf_counter()
-        base = NumpyLogisticRegression(C=C, class_weight="balanced").fit(train[columns], train["label"])
+        base = make_model(model_name, C, seed).fit(train[columns], train["label"])
         fit_seconds = time.perf_counter() - started
         model = calibrate_frozen(base, calibration, columns)
         scored = validation[["patient_id", "hour", "label"]].copy()
         scored["probability"] = model.predict_proba(validation[columns])[:, 1]
         metrics = score_table(scored)
+        fitted = {"newton_iterations": int(base.n_iter_), "converged": bool(base.converged_)} \
+            if model_name == "logistic" else {}
         tried.append({
-            "C": C, "fit_seconds": fit_seconds, "newton_iterations": int(base.n_iter_),
-            "converged": bool(base.converged_), "calibration_a": model.calibrator.a_,
+            "C": C, "fit_seconds": fit_seconds, **fitted, "calibration_a": model.calibrator.a_,
             "calibration_b": model.calibrator.b_, "metrics": metrics, "scored": scored,
         })
-        print(f"  arm {arm} C={C:g}: validation AUPRC {metrics['auprc']:.4f}, "
-              f"{base.n_iter_} Newton steps, {fit_seconds:.1f}s")
-    best = max(tried, key=lambda t: (np.nan_to_num(t["metrics"]["auprc"], nan=-1.0), -t["C"]))
+        label = f"C={C:g}" if C is not None else model_name
+        print(f"  arm {arm} {label}: validation AUPRC {metrics['auprc']:.4f}, {fit_seconds:.1f}s", flush=True)
+    best = max(tried, key=lambda t: (np.nan_to_num(t["metrics"]["auprc"], nan=-1.0), -(t["C"] or 0)))
     policy = tune_threshold(best["scored"], budget=budget, cooldown=cooldown)
     summary = {key: value for key, value in best.items() if key != "scored"}
     summary.update({
@@ -108,6 +129,9 @@ def main():
     parser.add_argument("--hmm", type=Path, default=Path("artifacts/hmm/hmm_model.json"))
     parser.add_argument("--output", type=Path, default=Path("artifacts/h03"))
     parser.add_argument("--arms", default="ABCD", help="subset of ABCD; A is always included")
+    parser.add_argument("--model", choices=MODELS, default="logistic",
+                        help="classifier used in every arm (default: K01 logistic regression)")
+    parser.add_argument("--seed", type=int, default=42, help="tree seed (random forest, gradient boosting)")
     parser.add_argument("--c-grid", type=float, nargs="+", default=[0.3],
                         help="same grid for every arm, chosen by validation AUPRC")
     parser.add_argument("--budget", type=float, default=0.2, help="false alerts per nonseptic patient-day")
@@ -151,15 +175,16 @@ def main():
         started = time.perf_counter()
         tables[name], feature_seconds[name], (shared, hmm, signature) = build_split(
             cohorts[name], hmm_model, scaler, fallback)
-        print(f"{name}: features in {time.perf_counter() - started:.0f}s")
+        print(f"{name}: features in {time.perf_counter() - started:.0f}s", flush=True)
     groups = {"hmm": list(hmm), "signature": list(signature)}
     base = list(shared)
 
     results, predictions = {}, {}
     for arm in arms:
         columns = arm_columns(base, groups, arm)
-        print(f"arm {arm} ({ARM_NAMES[arm]}): {len(columns)} columns")
-        results[arm], predictions[arm] = run_arm(arm, columns, tables, args.c_grid, args.budget, args.cooldown)
+        print(f"arm {arm} ({ARM_NAMES[arm]}): {len(columns)} columns, model {args.model}", flush=True)
+        results[arm], predictions[arm] = run_arm(arm, columns, tables, args.c_grid, args.budget, args.cooldown,
+                                                 args.model, args.seed)
 
     print(f"paired bootstrap, {args.resamples} resamples of validation stays")
     differences = paired_bootstrap(predictions, "A", args.resamples, args.bootstrap_seed) if len(arms) > 1 else {}
@@ -171,7 +196,7 @@ def main():
     for arm in arms:
         r, p = results[arm], results[arm]["policy"]
         rows.append({
-            "arm": arm, "name": r["name"], "columns": r["columns"], "C": r["C"],
+            "arm": arm, "name": r["name"], "model": args.model, "columns": r["columns"], "C": r["C"],
             "auprc": r["metrics"]["auprc"], "auroc": r["metrics"]["auroc"], "brier": r["metrics"]["brier"],
             "auprc_first_6h": r["metrics"]["auprc_first_6h"],
             "normalized_hourly_utility": p["normalized_hourly_utility"], "threshold": p["threshold"],
@@ -194,7 +219,8 @@ def main():
         "plan": "docs/h03-ablation-plan.md", "data": str(args.data), "splits": str(args.splits),
         "hmm": str(args.hmm), "hmm_fit": {k: hmm_meta.get(k) for k in ("split", "stays", "hours", "iterations")},
         "stays": stays, "limit": args.limit, "windows": list(WINDOWS), "signature_window": WINDOW,
-        "fallback": args.fallback, "c_grid": args.c_grid, "budget": args.budget, "cooldown": args.cooldown,
+        "model": args.model, "seed": args.seed,
+        "fallback": args.fallback, "c_grid": args.c_grid if args.model == "logistic" else None, "budget": args.budget, "cooldown": args.cooldown,
         "resamples": args.resamples, "bootstrap_seed": args.bootstrap_seed,
         "feature_seconds": feature_seconds, "feature_seconds_per_1000_stays": per_1000,
         "arms": results, "auprc_difference_vs_A": differences,

@@ -65,12 +65,12 @@ Slide numbers follow the 22-slide deck in `docs/presentation/` (see its README f
 
 | ID | Task | Status | Due date | Updated | Evidence / notes |
 |---|---|---|---|---|---|
-| H01 | HMM forward-pass states | Not started | - | - | - |
-| H02 | Signature features | Not started | - | - | - |
-| H03 | With / without tests | In review | - | 2026-11-14 | PR #71: `scripts/h03_ablation.py` runs arms A-D from [docs/h03-ablation-plan.md](docs/h03-ablation-plan.md) (train/calibration/validation only); metrics and paired bootstrap in `ablation.py`, 20 tests (`tests/test_ablation.py`). Real-data trial with `--limit 300` runs end to end. Full-cohort run pending: needs more than 8 GB RAM. |
+| H01 | HMM forward-pass states | Done | - | 2026-11-12 | PR #60: `hmm.py` (forward filter, Baum-Welch, 15 tests); `scripts/fit_hmm.py` fits 3 states on train (25 iterations, 52 s). |
+| H02 | Signature features | Done | - | 2026-11-13 | PR #63: `signature.py`, depth-2 log-signature over a trailing 6 h window (15 columns), 9 tests. |
+| H03 | With / without tests | Done | - | 2026-11-14 | PR #71: `scripts/h03_ablation.py`, arms A-D from [docs/h03-ablation-plan.md](docs/h03-ablation-plan.md). Full run on validation (3,051 stays): AUPRC A 0.0970, B 0.0976, C 0.0970, D 0.0976; every 95% paired-bootstrap interval vs A includes zero, so neither HMM nor signature helps the logistic regression. Same arms with K02/K03 (`--model`): gradient boosting no gain; random forest + HMM +0.012 AUPRC (95% CI 0.003 to 0.024), the only one of 9 intervals above zero. Extra feature time per 1,000 stays: HMM 0.5 s, signature 1.1 s. |
 | H04 | Optional: GMM | Not started | - | - | - |
-| H05 | Optional: GRU | Not started | - | - | - |
-| H06 | Prepare slide 14 | Not started | - | - | - |
+| H05 | Optional: GRU | Deferred | - | - | Deep learning is outside the course rules. |
+| H06 | Prepare slide 14 | Done | - | 2026-11-14 | `slides/latent.html`: HMM states, forward-only diagram, signature example, H03 results and cost. `.pptx` not rebuilt. |
 
 ### Person 5 - leo
 
