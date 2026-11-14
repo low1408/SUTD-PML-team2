@@ -27,7 +27,7 @@ identical in every arm.
 | Item | Setting |
 |---|---|
 | Split | Edwin's `splits.csv` (seed 42). Fit on `train`, report on `validation` |
-| Base features | J06 `features_for_windows`, J02 training-only fallback |
+| Base features | J06 `features_for_windows` built from the unfilled hours; leftover gaps filled inside the model with training-row medians (as `train` does). Same in all four arms |
 | HMM | Fitted once on `train` by `scripts/fit_hmm.py`: 3 states, HR, MAP, Resp, O2Sat. Frozen; only the forward filter is used for features |
 | Signature | `fit_signature_scaler` on `train` only; window 6 hours; depth 2 |
 | Model | K01 NumPy logistic regression, same regularisation, class weighting and seed |
@@ -87,9 +87,12 @@ limitations. If the temporal features do not help, the slide says so.
 | Signature features (H02) | Josh | Merged (PR #63) |
 | Memory for the full run | Josh | `NumpyLogisticRegression` peaks around 6 GB on the full train split; needs a machine with more than 8 GB RAM, or a float32 change to `logistic.py` |
 
-## Open decision: J02 fallback
+## Decision: no J02 fallback before the shared features (agreed 14 Nov)
 
-Applying the J02 training-median fallback to raw values before `features_for_windows`
-makes `__missing_now`, `__never_seen` and `__hours_since_seen` constant. The script
-leaves it off by default (the model's training-only median imputer fills gaps) and
-`--fallback` turns it on. Either way it is the same in every arm. To agree with the team.
+`build_features` already carries the last real reading forward and records
+`__missing_now`, `__never_seen` and `__hours_since_seen` from the original blanks.
+Filling raw values with the J02 training median first would make a missing test look
+like a real one, and those three columns would no longer mean "not done". So the shared
+features are built from the unfilled hours and the model fills what is still empty,
+using medians from training rows only. This matches `train`. `--fallback` stays as an
+optional switch and is off for the H03 run.
