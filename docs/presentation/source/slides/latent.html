@@ -1,21 +1,61 @@
-<section id="latent" style="background:#f5f3ee;color:#16232a;font-family:Inter, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:40px">
-<h2 style="font-family:'Space Grotesk', sans-serif;font-size:64px;font-weight:600;line-height:1.1">Hidden structure: HMM states and patient groups</h2>
-<div style="display:flex;gap:48px">
-<div style="flex:1;display:flex;flex-direction:column;gap:24px">
-<h3 style="font-size:32px;font-weight:600;color:#2c6285">GMM anomaly score (optional rung)</h3>
-<div style="height:340px;display:flex;align-items:center;justify-content:center;background:#eaf1f6;border:3px dashed #2c6285;border-radius:16px">
-<p style="font-size:28px;color:#2c6285;width:600px;text-align:center">[Insert: cluster profiles, or replace with signature-feature results if GMM is skipped]</p>
+<section id="latent" style="background:#f5f3ee;color:#16232a;font-family:Inter, sans-serif;padding:112px 128px 150px;display:flex;flex-direction:column;gap:28px">
+<div style="display:flex;flex-direction:column;gap:10px">
+<h2 style="font-family:'Space Grotesk', sans-serif;font-size:58px;font-weight:600;line-height:1.1">Temporal features: hidden states and 6-hour shapes</h2>
+<p style="font-size:24px;color:#5b6870">Both are fitted on the 11,183 training stays only, and score hour t from hours 1 to t. No later hour is used.</p>
 </div>
-<p style="font-size:26px;line-height:1.45">[Which cluster carries the most sepsis risk, and its clinical signature]</p>
+<div style="display:flex;gap:40px">
+<div style="flex:1;display:flex;flex-direction:column;gap:14px;background:#ffffff;border-radius:16px;padding:28px 32px">
+<h3 style="font-size:30px;font-weight:600;color:#2c6285">HMM: 3 states learned without labels</h3>
+<table style="font-size:22px;width:100%">
+<tr style="color:#5b6870;text-align:right"><td style="text-align:left;padding:4px 0">State</td><td>HR</td><td>MAP</td><td>Resp</td><td>O2Sat</td><td>Stays next hour</td></tr>
+<tr style="text-align:right;border-top:2px solid #d9dee1"><td style="text-align:left;padding:6px 0">Slower heart rate</td><td>67.9</td><td>77.6</td><td>17.5</td><td>97.3</td><td>0.97</td></tr>
+<tr style="text-align:right;border-top:2px solid #d9dee1"><td style="text-align:left;padding:6px 0">Typical</td><td>85.8</td><td>76.7</td><td>17.5</td><td>98.2</td><td>0.94</td></tr>
+<tr style="text-align:right;border-top:2px solid #d9dee1;background:#fbe7dd;font-weight:600"><td style="text-align:left;padding:6px 8px">Fast heart and breathing</td><td>102.0</td><td>81.9</td><td>21.7</td><td>96.2</td><td style="padding-right:8px">0.95</td></tr>
+</table>
+<svg viewBox="0 0 760 110" width="100%" height="110">
+<text x="0" y="18" font-size="18" fill="#5b6870" font-family="Inter">Forward filter: P(state at hour t | hours 1 to t)</text>
+<g font-family="Inter" font-size="18" text-anchor="middle">
+<rect x="0" y="34" width="86" height="44" rx="8" fill="#2c6285"/><text x="43" y="62" fill="#fff">1</text>
+<rect x="100" y="34" width="86" height="44" rx="8" fill="#2c6285"/><text x="143" y="62" fill="#fff">2</text>
+<text x="230" y="62" fill="#2c6285">…</text>
+<rect x="274" y="34" width="86" height="44" rx="8" fill="#e8875a"/><text x="317" y="62" fill="#fff" font-weight="600">t</text>
+<rect x="430" y="34" width="86" height="44" rx="8" fill="#e3e6e8"/><text x="473" y="62" fill="#9aa4aa">t+1</text>
+<rect x="530" y="34" width="86" height="44" rx="8" fill="#e3e6e8"/><text x="573" y="62" fill="#9aa4aa">t+2</text>
+<line x1="420" y1="28" x2="626" y2="84" stroke="#c0392b" stroke-width="3"/><line x1="626" y1="28" x2="420" y2="84" stroke="#c0392b" stroke-width="3"/>
+<text x="648" y="62" fill="#c0392b" text-anchor="start">never used</text>
+<text x="257" y="104" fill="#2c6285">used</text>
+</g>
+</svg>
 </div>
-<div style="flex:1;display:flex;flex-direction:column;gap:24px">
-<h3 style="font-size:32px;font-weight:600;color:#2c6285">Hidden Markov model</h3>
-<div style="height:340px;display:flex;align-items:center;justify-content:center;background:#eaf1f6;border:3px dashed #2c6285;border-radius:16px">
-<p style="font-size:28px;color:#2c6285;width:600px;text-align:center">[Insert: example patient trajectory with inferred states]</p>
+<div style="flex:1;display:flex;flex-direction:column;gap:14px;background:#ffffff;border-radius:16px;padding:28px 32px">
+<h3 style="font-size:30px;font-weight:600;color:#2c6285">Signature: which vital moved first</h3>
+<svg viewBox="0 0 760 200" width="100%" height="200">
+<g font-family="Inter" font-size="18">
+<text x="0" y="20" fill="#16232a" font-weight="600">Heart rate rises first</text>
+<polyline points="10,170 160,110 310,50" fill="none" stroke="#2c6285" stroke-width="5"/>
+<polyline points="10,170 160,155 310,80" fill="none" stroke="#e8875a" stroke-width="5"/>
+<text x="10" y="196" fill="#16232a">area +20</text>
+<text x="400" y="20" fill="#16232a" font-weight="600">Breathing rises first</text>
+<polyline points="400,170 550,110 700,50" fill="none" stroke="#2c6285" stroke-width="5"/>
+<polyline points="400,170 550,95 700,80" fill="none" stroke="#e8875a" stroke-width="5"/>
+<text x="400" y="196" fill="#16232a">area −20</text>
+<text x="600" y="196" fill="#2c6285">— HR</text><text x="680" y="196" fill="#e8875a">— Resp</text>
+</g>
+</svg>
+<p style="font-size:22px;line-height:1.4">Same start and end, so the total changes match; only the order differs. Per hour: <b>15 features</b> over the last 6 hours, 5 changes (time and 4 vitals) and 10 pairwise areas.</p>
 </div>
-<p style="font-size:26px;line-height:1.45">[Ablation: utility with vs without HMM features, __ vs __]</p>
+</div>
+<div style="display:flex;gap:40px;align-items:stretch">
+<table style="font-size:22px;flex:1;background:#eaf1f6;border-radius:16px">
+<tr style="color:#5b6870"><td style="padding:12px 20px">Validation, hospital A</td><td>A: shared features</td><td>B: + HMM</td><td>C: + signature</td><td>D: + both</td></tr>
+<tr style="border-top:2px solid #c9d8e3"><td style="padding:10px 20px">AUPRC (change vs A, 95% CI)</td><td>[__]</td><td>[__]</td><td>[__]</td><td>[__]</td></tr>
+<tr style="border-top:2px solid #c9d8e3"><td style="padding:10px 20px">AUPRC, first 6 ICU hours</td><td>[__]</td><td>[__]</td><td>[__]</td><td>[__]</td></tr>
+</table>
+<div style="width:520px;display:flex;flex-direction:column;gap:10px;justify-content:center">
+<p style="font-size:22px"><b>Cost:</b> HMM fit 52 s, once; +3, +15 or +18 columns; feature time [__] s per 1,000 stays</p>
+<p style="font-size:22px;color:#5b6870"><b>Not run:</b> GMM (optional); GRU (deep learning is outside the course rules)</p>
 </div>
 </div>
-<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#5b6870">14</p>
-<aside>Be honest if the HMM adds little: published work found high variation between patients limits HMMs used alone. Its value may be the interpretable trajectory view.</aside>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#5b6870">Same split, model and tuning budget in every arm; test sets untouched · 14</p>
+<aside>The HMM was fitted on the 11,183 training stays (435,449 hours) and converged in 25 iterations, 52 seconds. It never saw a sepsis label. One state stands out: heart rate about 102 and breathing about 22, which lines up with two of the SIRS criteria. Scoring uses the forward filter only, so hour t never looks at later hours. The signature captures the order in which vitals change, which plain rolling means miss. The table is filled once the NumPy logistic regression (K01) exists; we only say a feature helps if its 95% interval is above zero. If the gain is small, say so: published work found HMMs used alone are limited by how much patients differ, and the value may be the readable trajectory view. MAP runs higher at hospital B, so the state probabilities may shift there.</aside>
 </section>

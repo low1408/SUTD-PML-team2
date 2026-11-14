@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ICU Ward Replay</title>
+<style>
+/* Layout: control bar, then bed grid beside an alert feed; a strip maps each panel to the real-world step it stands for. */
+:root {
+  --bg: #eef2f5; --surface: #ffffff; --on-accent: #ffffff; --ink: #15212b; --muted: #5a6876; --line: #d3dbe2; --accent: #1d6b86;
+  --quiet: #2f8a5a; --quiet-bg: #e3f3ea; --above: #b9770f; --above-bg: #fbefd8;
+  --alert: #c2362b; --alert-bg: #fbe3e0; --empty: #8a96a3; --label: #7a4fb5; --label-bg: rgba(122,79,181,.12);
+  --f-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --f-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f151b; --surface: #17212b; --on-accent: #0f151b; --ink: #e2e9ef; --muted: #95a3b1; --line: #2b3946; --accent: #5ab5d3;
+    --quiet: #5fcf8f; --quiet-bg: #173626; --above: #f0b44c; --above-bg: #3a2c12;
+    --alert: #ff7f72; --alert-bg: #47201c; --empty: #6f7c89; --label: #b896ee; --label-bg: rgba(184,150,238,.16);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f151b; --surface: #17212b; --on-accent: #0f151b; --ink: #e2e9ef; --muted: #95a3b1; --line: #2b3946; --accent: #5ab5d3;
+  --quiet: #5fcf8f; --quiet-bg: #173626; --above: #f0b44c; --above-bg: #3a2c12;
+  --alert: #ff7f72; --alert-bg: #47201c; --empty: #6f7c89; --label: #b896ee; --label-bg: rgba(184,150,238,.16);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body);
+  padding: max(20px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }
+main { max-width: 1280px; margin: 0 auto; display: grid; gap: 18px; }
+h1 { margin: 0; font-size: clamp(24px, 4vw, 34px); line-height: 1.15; }
+h2 { margin: 0; font-size: 16px; }
+p { margin: 0; max-width: 75ch; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.banner { border-radius: 8px; padding: 10px 14px; font-weight: 600; font-size: 14px; }
+.banner.synthetic { background: var(--above-bg); color: var(--ink); border: 1px solid var(--above); }
+.banner.private { background: var(--alert-bg); color: var(--ink); border: 1px solid var(--alert); }
+
+.flow { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
+.flow div { flex: 1 1 150px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px; min-width: 0; }
+.flow b { display: block; font-size: 13.5px; }
+.flow .lit { border-color: var(--alert); box-shadow: 0 0 0 2px var(--alert-bg); }
+
+.controls { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+button, select { font: inherit; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); padding: 6px 12px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; min-width: 84px; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.clock { font: 600 20px var(--f-mono); }
+#scrub { flex: 1 1 220px; min-width: 0; accent-color: var(--accent); }
+label.toggle { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+.beds { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 10px; }
+.bed { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--c, var(--line)); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; min-width: 0; }
+.bed.alert { animation: pulse 1.2s ease-out 1; }
+@keyframes pulse { from { box-shadow: 0 0 0 6px var(--alert-bg); } to { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .bed.alert { animation: none; } }
+.bed header { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.bed header b { font-size: 15px; }
+.pill { font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 1px 8px; background: var(--cb, var(--bg)); color: var(--c, var(--muted)); white-space: nowrap; }
+.risk { font: 600 24px var(--f-mono); line-height: 1.1; }
+.risk small { font: 12px var(--f-body); color: var(--muted); }
+.bed svg { width: 100%; height: 54px; display: block; }
+.vitals { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--muted); }
+.vitals span b { color: var(--ink); font-weight: 600; font-family: var(--f-mono); }
+.outcome { font-size: 12px; color: var(--label); }
+.s-empty { --c: var(--empty); --cb: var(--bg); }
+.s-quiet { --c: var(--quiet); --cb: var(--quiet-bg); }
+.s-above { --c: var(--above); --cb: var(--above-bg); }
+.s-alert { --c: var(--alert); --cb: var(--alert-bg); }
+
+aside { display: grid; gap: 12px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
+.stats { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; font-size: 14px; }
+.stats .v { font-family: var(--f-mono); text-align: right; font-weight: 600; }
+.over { color: var(--alert); }
+#feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 420px; overflow-y: auto; }
+#feed li { border-left: 3px solid var(--alert); padding: 2px 0 2px 8px; font-size: 13.5px; }
+#feed .tag { font-size: 12px; color: var(--label); }
+footer { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <header style="display:grid;gap:8px">
+    <div class="muted mono" style="font-size:12px;letter-spacing:.06em">SEPSIS EARLY WARNING · RESEARCH REPLAY</div>
+    <h1>ICU Ward Replay</h1>
+    <p class="muted" id="intro"></p>
+    <div id="banner" class="banner"></div>
+  </header>
+
+  <section class="flow" aria-label="How each panel maps to a real ICU">
+    <div><b>1 · Bedside and labs</b>Monitors and blood draws; nurses chart vitals</div>
+    <div><b>2 · Hospital record</b>One row per ICU hour, the last value carried forward</div>
+    <div id="flow-score"><b>3 · Scoring API</b><span id="scored-by"></span></div>
+    <div id="flow-alert"><b>4 · Alert to care team</b>Only when risk crosses the threshold, then a 6 h cooldown</div>
+    <div><b>5 · Monitoring</b>Alerts per patient-day against the budget</div>
+  </section>
+
+  <section class="controls" aria-label="Replay controls">
+    <button class="primary" id="play" type="button">Play</button>
+    <button id="back" type="button" aria-label="Back one hour">−1 h</button>
+    <button id="fwd" type="button" aria-label="Forward one hour">+1 h</button>
+    <span class="clock" id="clock">Hour 0</span>
+    <input id="scrub" type="range" min="0" value="0" aria-label="Ward hour">
+    <label class="toggle">Speed <select id="speed"><option value="1500">1 h / 1.5 s</option><option value="800" selected>1 h / 0.8 s</option><option value="350">1 h / 0.35 s</option><option value="120">1 h / 0.12 s</option></select></label>
+    <label class="toggle"><input type="checkbox" id="hindsight"> Show outcomes (hindsight)</label>
+  </section>
+
+  <div class="layout">
+    <section class="beds" id="beds" aria-label="Beds"></section>
+    <aside>
+      <div class="panel">
+        <h2>Ward now</h2>
+        <div class="stats" id="live"></div>
+      </div>
+      <div class="panel" id="hindsight-panel" hidden>
+        <h2>With hindsight</h2>
+        <div class="stats" id="after"></div>
+        <p class="muted" style="font-size:12.5px">Uses the challenge label, which a real ward would only know days later. Onset is inferred as the first positive label hour plus 6.</p>
+      </div>
+      <div class="panel">
+        <h2>Alerts sent</h2>
+        <ul id="feed"></ul>
+      </div>
+    </aside>
+  </div>
+
+  <footer id="footer"></footer>
+</main>
+<script>
+const data = __PAYLOAD__;
+const $ = id => document.getElementById(id);
+const pct = v => v == null ? '–' : (100 * v).toFixed(1) + '%';
+const COOLDOWN = data.cooldown_hours, T = data.threshold;
+const yMax = Math.min(1, Math.max(T * 3, ...data.beds.flatMap(b => b.risk.filter(v => v != null))));
+
+data.beds.forEach(b => {
+  const first = b.label.indexOf(1);
+  b.firstLabel = first;               // row index, -1 if never positive
+  b.onset = first >= 0 ? first + 6 : null;
+  b.censored = first === 0;
+});
+
+function classify(b, r) {
+  if (b.firstLabel < 0) return 'false alert';
+  if (b.censored) return 'positive at admission';
+  if (r >= b.onset) return 'after onset';
+  if (r >= b.onset - 12) return 'early warning';
+  return 'more than 12 h early';
+}
+
+$('intro').textContent = `${data.beds.length} beds, each admitted at a different hour, are scored every ICU hour by ${data.model_name}. ` +
+  `Threshold ${pct(T)}; after an alert the same bed stays quiet for ${COOLDOWN} hours.`;
+const banner = $('banner');
+if (data.synthetic) { banner.className = 'banner synthetic'; banner.textContent = 'Synthetic software demo: invented patients and a demo model. Not clinical evidence.'; }
+else { banner.className = 'banner private'; banner.textContent = `Private: PhysioNet stays from the ${data.split} split. Do not share this page or put it in Git; use the synthetic version for slides.`; }
+$('scored-by').textContent = data.scored_by;
+$('footer').textContent = `Research replay of a benchmark label (PhysioNet 2019), not a clinical tool. ` +
+  `${Math.round(100 * data.ward_septic_share)}% of beds here became septic, against ${(100 * data.cohort_septic_share).toFixed(1)}% in the source split; septic stays are over-represented so the demo shows alerts. ` +
+  `Beds are numbered; no record IDs are included.`;
+
+const svgNS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, parent) { const e = document.createElementNS(svgNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.append(e); return e; }
+
+const tiles = data.beds.map(b => {
+  const tile = document.createElement('article');
+  tile.className = 'bed';
+  tile.innerHTML = `<header><b>${b.bed}</b><span class="pill"></span></header>
+    <div class="risk"></div><svg viewBox="0 0 200 54" preserveAspectRatio="none" aria-hidden="true"></svg>
+    <div class="vitals"></div><div class="outcome"></div>`;
+  $('beds').append(tile);
+  return { tile, pill: tile.querySelector('.pill'), risk: tile.querySelector('.risk'), svg: tile.querySelector('svg'),
+           vitals: tile.querySelector('.vitals'), outcome: tile.querySelector('.outcome') };
+});
+
+let t = 0, timer = null;
+$('scrub').max = data.ward_hours - 1;
+
+function drawSpark(svg, b, i) {
+  svg.replaceChildren();
+  const n = b.risk.length, x = r => 2 + 196 * r / Math.max(1, n - 1), y = v => 52 - 48 * Math.min(v, yMax) / yMax;
+  if ($('hindsight').checked && b.firstLabel >= 0) {
+    el('rect', { x: x(b.firstLabel), y: 2, width: Math.max(1, 198 - x(b.firstLabel)), height: 50, fill: 'var(--label-bg)' }, svg);
+  }
+  el('line', { x1: 2, x2: 198, y1: y(T), y2: y(T), stroke: 'var(--above)', 'stroke-dasharray': '4 3', 'stroke-width': 1 }, svg);
+  const pts = [];
+  for (let r = 0; r <= Math.min(i, n - 1); r++) if (b.risk[r] != null) pts.push(`${x(r).toFixed(1)},${y(b.risk[r]).toFixed(1)}`);
+  if (pts.length) el('polyline', { points: pts.join(' '), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 1.6 }, svg);
+  for (let r = 0; r <= Math.min(i, n - 1); r++) if (b.alert[r]) el('circle', { cx: x(r), cy: y(b.risk[r]), r: 2.6, fill: 'var(--alert)' }, svg);
+}
+
+function render(fresh) {
+  const hind = $('hindsight').checked;
+  $('clock').textContent = `Hour ${t}`;
+  $('scrub').value = t;
+  let occupied = 0, above = 0, alertsNow = 0, alertsTotal = 0;
+  let nonsepticHours = 0, falseAlerts = 0, septicDue = 0, warned = 0;
+  const feed = [];
+  data.beds.forEach((b, k) => {
+    const v = tiles[k], i = t - b.offset, n = b.risk.length;
+    let status, cls;
+    if (i < 0) { status = `Admitted at hour ${b.offset}`; cls = 's-empty'; }
+    else if (i >= n) { status = 'Discharged'; cls = 's-empty'; }
+    else if (b.alert[i]) { status = 'ALERT'; cls = 's-alert'; alertsNow++; }
+    else if (b.above[i]) { status = 'Above · cooldown'; cls = 's-above'; }
+    else { status = 'Monitoring'; cls = 's-quiet'; }
+    const active = i >= 0 && i < n;
+    if (active) { occupied++; if (b.above[i]) above++; }
+    const seen = Math.min(i, n - 1);
+    for (let r = 0; r <= seen; r++) if (b.alert[r]) {
+      alertsTotal++;
+      feed.push({ ward: b.offset + r, bed: b.bed, icu: b.icu_hour[r], risk: b.risk[r], tag: classify(b, r) });
+    }
+    if (seen >= 0 && b.firstLabel < 0) {
+      nonsepticHours += seen + 1;
+      for (let r = 0; r <= seen; r++) falseAlerts += b.alert[r];
+    }
+    if (b.onset != null && !b.censored && b.onset <= seen) {
+      septicDue++;
+      let ok = false;
+      for (let r = Math.max(0, b.onset - 12); r < b.onset; r++) if (b.alert[r]) ok = true;
+      if (ok) warned++;
+    }
+    v.tile.className = `bed ${cls}` + (cls === 's-alert' && fresh ? ' alert' : '');
+    v.pill.textContent = status;
+    v.risk.innerHTML = active ? `${pct(b.risk[i])} <small>ICU hour ${b.icu_hour[i]}</small>` : `<small>${i < 0 ? 'Bed empty' : 'Stay ended'}</small>`;
+    drawSpark(v.svg, b, active ? i : (i < 0 ? -1 : n - 1));
+    v.vitals.innerHTML = active ? ['HR', 'MAP', 'Temp', 'Resp', 'O2Sat'].map(name => {
+      const value = b.vitals[name][i];
+      return `<span>${name} <b>${value == null ? '–' : value}</b></span>`;
+    }).join('') : '';
+    v.outcome.textContent = hind && b.firstLabel >= 0 && i >= 0
+      ? (b.censored ? 'Hindsight: septic from admission' : `Hindsight: onset at ICU hour ${b.icu_hour[0] + b.onset}`)
+      : (hind && i >= 0 ? 'Hindsight: did not become septic' : '');
+  });
+  $('flow-alert').classList.toggle('lit', alertsNow > 0);
+  $('live').innerHTML = `
+    <span>Beds occupied</span><span class="v">${occupied} / ${data.beds.length}</span>
+    <span>Above threshold now</span><span class="v">${above}</span>
+    <span>Alerts so far</span><span class="v">${alertsTotal}</span>`;
+  const rate = nonsepticHours ? falseAlerts / (nonsepticHours / 24) : 0;
+  $('hindsight-panel').hidden = !hind;
+  $('after').innerHTML = `
+    <span>False alerts per non-septic patient-day</span><span class="v ${rate > data.alert_budget_per_day ? 'over' : ''}">${rate.toFixed(2)}</span>
+    <span>Budget</span><span class="v">${data.alert_budget_per_day.toFixed(2)}</span>
+    <span>Septic beds past onset that were warned in the 12 h before</span><span class="v">${warned} / ${septicDue}</span>`;
+  feed.sort((a, b) => b.ward - a.ward);
+  $('feed').innerHTML = feed.length ? feed.slice(0, 60).map(a =>
+    `<li><span class="mono">Hour ${a.ward}</span> · <b>${a.bed}</b> · risk ${pct(a.risk)} · ICU hour ${a.icu}` +
+    (hind ? `<br><span class="tag">${a.tag}</span>` : '') + '</li>').join('')
+    : '<li class="muted" style="border:0;padding:0">No alerts yet.</li>';
+}
+
+function step(d, fresh = true) { t = Math.max(0, Math.min(data.ward_hours - 1, t + d)); render(fresh); }
+function stop() { clearInterval(timer); timer = null; $('play').textContent = 'Play'; }
+function play() {
+  if (timer) { stop(); return; }
+  if (t >= data.ward_hours - 1) t = 0;
+  $('play').textContent = 'Pause';
+  timer = setInterval(() => { if (t >= data.ward_hours - 1) { stop(); return; } step(1); }, Number($('speed').value));
+}
+$('play').addEventListener('click', play);
+$('back').addEventListener('click', () => { stop(); step(-1, false); });
+$('fwd').addEventListener('click', () => { stop(); step(1); });
+$('scrub').addEventListener('input', e => { stop(); t = Number(e.target.value); render(false); });
+$('speed').addEventListener('change', () => { if (timer) { stop(); play(); } });
+$('hindsight').addEventListener('change', () => render(false));
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'BUTTON') return;
+  if (e.code === 'Space') { e.preventDefault(); play(); }
+  if (e.code === 'ArrowRight') { stop(); step(1); }
+  if (e.code === 'ArrowLeft') { stop(); step(-1, false); }
+});
+t = Math.min(24, data.ward_hours - 1);
+render(false);
+</script>
+</body>
+</html>

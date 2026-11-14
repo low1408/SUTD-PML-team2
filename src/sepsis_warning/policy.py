@@ -1,5 +1,7 @@
 """Separate hourly model decisions from notifications with a cooldown."""
 
+import time
+
 import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
@@ -47,6 +49,46 @@ def utility_components(labels):
     negative = np.where(delta <= -6, 0.0, -2 * (delta + 6) / 9)
     # The official utility ceases accumulating after onset + 3 hours.
     return np.where(delta <= 3, positive, 0), np.where(delta <= 3, negative, 0)
+
+
+# Stated timing workload: 500 stays of 48 hours. This is not a speed limit.
+UTILITY_BENCHMARK_PATIENTS = 500
+UTILITY_BENCHMARK_HOURS = 48
+
+
+def utility_benchmark_table(
+    n_patients: int = UTILITY_BENCHMARK_PATIENTS,
+    hours: int = UTILITY_BENCHMARK_HOURS,
+) -> pd.DataFrame:
+    """Fixed hourly decisions for timing the published utility."""
+    patient_id = np.repeat(np.arange(n_patients), hours)
+    hour = np.tile(np.arange(hours), n_patients)
+    label = np.zeros(n_patients * hours, dtype=int)
+    hourly_positive = np.zeros(n_patients * hours, dtype=int)
+    label[:hours] = np.r_[np.zeros(hours - 12, dtype=int), np.ones(12, dtype=int)]
+    hourly_positive[:hours] = np.r_[np.zeros(hours - 18, dtype=int), np.ones(18, dtype=int)]
+    return pd.DataFrame({
+        "patient_id": patient_id,
+        "hour": hour,
+        "label": label,
+        "hourly_positive": hourly_positive,
+    })
+
+
+def benchmark_utility(table: pd.DataFrame | None = None) -> dict:
+    """Time normalized hourly utility. The result records seconds; it does not set a limit."""
+    if table is None:
+        table = utility_benchmark_table()
+    started = time.perf_counter()
+    score = normalized_utility(table)
+    elapsed = time.perf_counter() - started
+    return {
+        "patients": int(table["patient_id"].nunique()),
+        "hours_per_patient": int(table.groupby("patient_id").size().iloc[0]),
+        "patient_hours": int(len(table)),
+        "elapsed_seconds": float(elapsed),
+        "normalized_utility": score,
+    }
 
 
 def normalized_utility(table):

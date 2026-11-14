@@ -1,5 +1,6 @@
 # Local Python environments and generated package/build files.
 .venv/
+.venv312/
 venv/
 env/
 ENV/
@@ -23,6 +24,7 @@ htmlcov/
 # Patient data and experiment outputs (including HTML replays and screenshots).
 /data/
 /artifacts/
+/benchmarks/
 # Guard against raw patient records or models saved outside those directories.
 *.psv
 *.part
@@ -57,3 +59,8 @@ Thumbs.db
 /school/
 /_personal/
 /HANDOFF-person1*.md
+
+# Local chat exports and archives
+/whatsapp/
+whatsapp.zip
+whatsapp*

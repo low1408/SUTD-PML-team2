@@ -1,0 +1,8 @@
+# Allowlist: only what the scoring service needs enters the build context.
+# Patient data, models, artifacts, notebooks and Git history never do.
+*
+!pyproject.toml
+!requirements.txt
+!README.md
+!src/sepsis_warning/
+src/sepsis_warning/__pycache__/

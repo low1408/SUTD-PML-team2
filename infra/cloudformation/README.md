@@ -1,23 +1,41 @@
 # AWS research-demo infrastructure
 
 This is a **not-yet-deployed** CloudFormation prototype for the research
-scoring service. The initial path is deliberately smaller than the future
-architecture:
+scoring service. By default it follows the private design in the deck
+(slide 18) and in `docs/design/sepsis-warning-pipeline.html`, but it covers
+only part of that design so far:
 
 ```text
-Public internet
-    -> internet-facing Application Load Balancer (HTTP; optional ACM HTTPS)
+VPC (or, later, the hospital VPN)
+    -> internal Application Load Balancer in private subnets (default)
     -> ECS Fargate scoring task in private subnets
     -> encrypted S3 model artifacts and DynamoDB stay state
 ```
 
-There is no API Gateway, VPN, authentication, training service, model
-registry, or scheduled monitoring job in this first phase. The API is public
-and unauthenticated if deployed; use synthetic requests only. Do not send
-patient, personal, or other sensitive data. Authentication, approved TLS/DNS,
-and network restrictions are prerequisites before any non-synthetic use.
-The existing design targets `ap-southeast-1` (Singapore); the templates use
-the region selected for the stack and do not enforce it.
+`LoadBalancerScheme=internet-facing` switches to a public load balancer in
+public subnets, for a synthetic-only demo. The API has no authentication in
+either mode, so never send patient, personal or other sensitive data to it.
+The design targets `ap-southeast-1` (Singapore); the templates use the region
+selected for the stack and do not enforce it.
+
+## Deck design vs these templates
+
+| Deck component (slide 18) | In the templates | Status |
+|---|---|---|
+| Private entry point | Internal ALB in private subnets (`LoadBalancerScheme=internal`, default) | Aligned |
+| Site-to-Site VPN from the hospital | Not created; add the VPN range to `AllowedSourceCidr` when one exists | Not built |
+| Private API Gateway with OAuth2 client credentials | Not created; the ALB is the entry point and there is no authentication | Not built |
+| ECS Fargate scoring API | `service.yaml`, private subnets, image from ECR | Aligned |
+| DynamoDB state per stay | `StateTable` in `artifacts.yaml`, task role can read and write it | Aligned (the API does not use it yet) |
+| ECR with image scanning | `EcrRepository` with scan on push | Aligned |
+| S3 for data and artifacts, KMS encryption | `ArtifactBucket` and `ArtifactKey` | Aligned |
+| SageMaker training job and managed MLflow | Not created | Not built |
+| EventBridge monitoring jobs | Not created | Not built |
+| CloudWatch alarms and SNS email | `monitoring.yaml` | Aligned |
+| IAM least privilege | Scoped task and execution roles | Aligned |
+| Secrets Manager, CloudTrail | Not created | Not built |
+
+"Not built" items stay on the slide as design, not as deployed resources.
 
 ## Layout
 
@@ -26,7 +44,7 @@ the region selected for the stack and do not enforce it.
 | `root.yaml` | Nested-stack composition and shared parameters |
 | `network.yaml` | VPC, public/private subnets, routing, and private AWS service endpoints |
 | `artifacts.yaml` | KMS key, private/versioned S3 bucket, scanned ECR repository, encrypted DynamoDB state |
-| `service.yaml` | Public ALB, private Fargate service, scoped task roles, and application logs |
+| `service.yaml` | Load balancer (internal by default), private Fargate service, scoped task roles, and application logs |
 | `monitoring.yaml` | ECS/ALB alarms, optional email subscription, and optional AWS Budget |
 
 Nested stacks keep resource groups independently reviewable. The templates
@@ -67,9 +85,11 @@ billable resources. No AWS upload, stack creation, or teardown has been done.
 - Configure an ACM certificate for a custom hostname and set the matching
   `ApiHostname` parameter to enable HTTPS. Point that hostname at the load
   balancer. Without a certificate/hostname the prototype serves HTTP; it is
-  for synthetic demonstration traffic only.
-- Set `AllowedSourceCidr` to the narrowest suitable IPv4 range. The default is
-  open to the internet, and there is no request authentication or rate limiting.
+  for synthetic demonstration traffic only. The image is built and
+  smoke-tested by `scripts/docker_smoke_test.sh` (see `docs/serving.md`).
+- Keep `LoadBalancerScheme=internal` unless a public synthetic demo is agreed.
+  `AllowedSourceCidr` defaults to the VPC range; add only the hospital VPN range.
+  There is no request authentication or rate limiting.
 - Set a nonzero `MonthlyBudgetUsd` and `BudgetEmail` together to create a budget
   alert. AWS Budgets notifications are not a hard spending cap.
 - Do not upload raw PhysioNet records, patient-level outputs, secrets, or

@@ -18,6 +18,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# L01, approved by the team owner on 2026-11-09. Local stores only by default.
+tracking = ["mlflow>=2.17,<4"]
+# L02 research API. FastAPI pulls in pydantic and starlette.
+serve = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
+# Only needed to run the API tests (FastAPI's TestClient).
+test = ["httpx>=0.27,<1"]
 notebook = ["ipykernel>=7,<8"]
 checks = ["pandera==0.35.0"]
 dvc = ["dvc==3.67.1"]
@@ -29,4 +35,4 @@ sepsis-warning = "sepsis_warning.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sepsis_warning = ["report_template.html"]
+sepsis_warning = ["report_template.html", "ward_template.html"]

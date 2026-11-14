@@ -14,12 +14,14 @@
 
 | Person | Owner | Slides |
 |---|---|---|
-| 1 | Edwin | 4, 5, 8 |
-| 2 | Jawad | 6 |
-| 3 | Kaiyuan | 3, 7, 9 |
-| 4 | Josh | 11 |
-| 5 | leo | 13, 14 |
-| 6 | Mashie | 10, 12, 15, 16 |
+| 1 | Edwin | 4, 5, 9, 10 |
+| 2 | Jawad | 6, 7 |
+| 3 | Kaiyuan | 3, 8, 11, 12 |
+| 4 | Josh | 14 |
+| 5 | leo | 16, 17, 18 |
+| 6 | Mashie | 13, 15, 19, 20 |
+
+Slide numbers follow the 22-slide deck in `docs/presentation/` (see its README for titles). Slides 1, 2, 21 and 22 (cover, problem, lessons, close) are shared and assembled by Mashie (M06). Slide 5 (bedside to model) sits with Edwin for now; Mashie may move it to Leo's serving story.
 
 ## Task status
 
@@ -33,31 +35,31 @@
 | E04 | Hospital A / B split | Done | - | 2026-11-09 | `split` command writes `splits.csv` (seed 42, hashes). 55/15/15/15 of A, all B external, every stay once, load-order independent. `tests/test_splits.py`. Stay-level, not person-level. Merged by Leo in PR #48; no formal Approve review. `baseline` can now read the saved split. |
 | E05 | Exploratory analysis | In progress | - | 2026-11-09 | `compare-hospitals` command, 7 figures in `reports/figures/`, findings in `docs/hospital-a-vs-b.md`. A restricted to train split (no test data). To do: team OK on descriptive use of B. Hospital B wording on hold until the model owner replies. |
 | E06 | SIRS rule baseline | Done | - | 2026-11-09 | `baseline` command → `baseline_metrics.csv`; SIRS F1 0.063 (A val), utility −0.014 at B. Independently recomputed with the official utility formula (match to 1e-15). Adds accuracy, specificity, confusion matrix and a validation-only threshold sweep (fig 8). `tests/test_baselines.py`. Merged by Leo in PR #48; no formal Approve review. Failure patterns: `docs/sirs-failure-patterns.md`. |
-| E07 | Prepare slides 4, 5, 8 | Not started | - | 2026-11-09 | Deck README now lists slides 4, 5, 9, 10; awaiting confirmation. Slides done last. |
+| E07 | Prepare slides 4, 5, 9, 10 | Not started | - | 2026-11-09 | Deck README now lists slides 4, 5, 9, 10; awaiting confirmation. Slides done last. |
 
 ### Person 2 - Jawad
 
 | ID | Task | Status | Due date | Updated | Evidence / notes |
 |---|---|---|---|---|---|
-| J01 | Causal rolling features | Not started | - | - | - |
-| J02 | Missing-value handling | Not started | - | - | - |
-| J03 | Hours since last lab test | Not started | - | - | - |
-| J04 | Leakage tests: corrupt hour t+1 and verify earlier features remain unchanged | Not started | - | - | - |
-| J05 | Fast utility-score function | Not started | - | - | - |
-| J06 | Shared feature module | Not started | - | - | - |
-| J07 | Prepare slide 6 | Not started | - | - | - |
+| J01 | Causal rolling features | Done | - | 2026-11-11 | Shared builder in `features.py`: last value, missing-now, never-seen, hours since seen, and a trailing window of mean, std, count and change. Hours since seen use ICULOS, including a stay that starts after hour 1 (`test_stay_starting_after_hour_one_uses_iculos`). Prefix and future-corruption tests in `tests/test_invariants.py`. Merged in PR #51, approved by Leo. `train` uses the 6-hour window. The 3-hour and 12-hour windows from `features_for_windows` are experimental and are not called by `train`. |
+| J02 | Missing-value handling | Done | - | 2026-11-11 | Forward-fill stays inside one stay, has no expiry, and never fills an earlier blank from a later hour. `fit_training_fallback` and `apply_training_fallback` take medians from the tables they are given. Tests cover a validation row, an all-blank training column, an outage, unchanged raw rows, and a reset between patients. Merged in PR #53. `train` still fills blanks with sklearn's imputer. The training-only fallback is experimental and is not called by `train`. |
+| J03 | Hours since last lab test | Done | - | 2026-11-11 | Per-lab hours since seen, missing-now and never-seen, measured in ICU hours from ICULOS. `test_lab_recency_covers_first_hour_gap_and_never_seen` and `test_stay_starting_after_hour_one_uses_iculos`. Merged in PR #51, approved by Leo. The late-start test is on this branch. |
+| J04 | Leakage tests: corrupt hour t+1 and verify earlier features remain unchanged | Done | - | 2026-11-11 | Merged in PR #51: next-hour corruption, prefix scoring matches the full stay, saved-column mismatch refused. Merged in PR #53: training-only fit tests. `test_a_leaking_fill_changes_earlier_rows` substitutes a backward fill and shows the corruption check catches it. The shared builder on the same rows stays unchanged. |
+| J05 | Fast utility-score function | Done | - | 2026-11-11 | `normalized_utility` matches the published example and is timed on 500 patients by 48 hours, 24,000 patient-hours, with no speed limit (`benchmark_utility`). Hourly decisions, separate from cooldown events. Merged in PR #51 and PR #53. |
+| J06 | Shared feature module | Done | - | 2026-11-11 | `train`, replay and the scoring service call `build_features`. `scripts/causal_features.py` calls the same module. The saved column list is stored with the model and rejected when a stay cannot supply it. The exploratory `missingness` command still builds its own feature table. |
+| J07 | Prepare slides 6, 7 | In progress | - | 2026-11-11 | Slides 6 and 7 are drafted in `docs/presentation/source/slides/pipeline.html` and `features.html`. Team review is not recorded. The features slide still lists 3, 6 and 12 hour windows as next work. The 3-hour and 12-hour windows exist as an experimental builder, and `train` uses 6 hours. |
 
 ### Person 3 - Kaiyuan
 
 | ID | Task | Status | Due date | Updated | Evidence / notes |
 |---|---|---|---|---|---|
-| K01 | Logistic regression | Not started | - | - | - |
-| K02 | Random forest | Not started | - | - | - |
-| K03 | LightGBM as the main model | Not started | - | - | - |
-| K04 | Probability calibration | Not started | - | - | - |
-| K05 | Alarm threshold and six-hour cooldown | Not started | - | - | - |
-| K06 | Fairness checks | Not started | - | - | - |
-| K07 | Prepare slides 3, 7, 9 | Not started | - | - | - |
+| K01 | Logistic regression | In progress | - | 2026-11-13 | Implementing vectorized Logistic Regression from scratch in pure NumPy (no scikit-learn). Scikit-learn reference benchmark achieved AUROC 0.795, AP 0.105, Utility 0.250 (`artifacts/sklearn_benchmark/`). |
+| K02 | Random forest | In progress | - | 2026-11-13 | Pure NumPy baseline implementation in progress. Scikit-learn reference benchmark achieved AUROC 0.817, AP 0.125, Utility 0.365 (`artifacts/sklearn_benchmark/`). |
+| K03 | LightGBM as the main model | In progress | - | 2026-11-13 | Main model implementation from scratch in pure NumPy (no scikit-learn) in progress on branch `kaiyuan/model-from-scratch`. Scikit-learn HistGradientBoosting reference benchmark achieved AUROC 0.833, AP 0.136, Utility 0.390 (`artifacts/sklearn_benchmark/`). |
+| K04 | Probability calibration | In progress | - | 2026-11-13 | Implementing pure NumPy Platt scaling (sigmoid calibration) on 15% calibration cohort with frozen base estimator. Scikit-learn reference benchmark achieved Brier score 0.0199. |
+| K05 | Alarm threshold and six-hour cooldown | In progress | - | 2026-11-13 | Alert decision threshold tuning under <=0.20 false alarm ceiling with 6h cooldown in progress for NumPy models. Scikit-learn reference benchmark selected threshold 0.06 (0.192 false alarms/patient-day). |
+| K06 | Fairness checks | In progress | - | 2026-11-13 | Subgroup audit across age groups (<50, 50-64, 65-79, >=80) and recorded gender in progress. |
+| K07 | Prepare slides 3, 8, 11, 12 | In progress | - | 2026-11-13 | Preparing empirical evidence, model selection rationale, and cross-hospital generalization drop for slides 3, 8, 11, and 12. |
 
 ### Person 4 - Josh
 
@@ -68,19 +70,19 @@
 | H03 | With / without tests | Not started | - | - | - |
 | H04 | Optional: GMM | Not started | - | - | - |
 | H05 | Optional: GRU | Not started | - | - | - |
-| H06 | Prepare slide 11 | Not started | - | - | - |
+| H06 | Prepare slide 14 | Not started | - | - | - |
 
 ### Person 5 - leo
 
 | ID | Task | Status | Due date | Updated | Evidence / notes |
 |---|---|---|---|---|---|
-| L01 | MLflow tracking and registry | Not started | - | - | - |
-| L02 | FastAPI service | Not started | - | - | - |
-| L03 | Docker image | Not started | - | - | - |
-| L04 | CI/CD with GitHub Actions | Not started | - | - | - |
-| L05 | Latency tests | Not started | - | - | - |
-| L06 | AWS deployment design | In progress | - | 2026-11-08 | Modular CloudFormation prototype in `infra/cloudformation/`; static validation only, no AWS deployment. Initial scope: public ALB, private Fargate tasks, no API Gateway/auth. |
-| L07 | Prepare slides 13, 14 | Not started | - | - | - |
+| L01 | MLflow tracking and registry | In review | - | 2026-11-09 | Tracking part only. Every `train`/`demo` writes `run_metadata.json` (seed, split seed/hashes from `splits.csv.summary.json`, optional `dvc.lock` hashes, feature-contract hash, git commit, package versions). `--mlflow-uri` logs aggregates to a local store only ([tracking.py](src/sepsis_warning/tracking.py), `tests/test_tracking.py`). MLflow approved as optional `tracking` extra. To do: real-run demo with MLflow installed; registry and model retrieval after review. |
+| L02 | FastAPI service | In review | - | 2026-11-09 | `serve` command: `GET /health`, `POST /score`; stateless full-history requests, 422 invalid input, 409 model mismatch, localhost-only by default, no auth ([service.py](src/sepsis_warning/service.py), [api.py](src/sepsis_warning/api.py)). Tests: replay parity, prefix scoring, concurrent isolation, error cases (`tests/test_service.py`, `tests/test_api.py`). Synthetic models only. FastAPI as optional `serve` extra needs team OK. |
+| L03 | Docker image | In review | - | 2026-11-13 | `Dockerfile` (non-root uid 10001, pinned `requirements.txt`, model mounted read-only, allowlist `.dockerignore`, health check). `scripts/docker_smoke_test.sh` passes: non-root, no data/model files in the image, synthetic demo model, `/health`, `/score`, 422 on a label in the input. CI job `docker-image` runs it. See `docs/serving.md`. |
+| L04 | CI/CD with GitHub Actions | Done | - | 2026-11-13 | [.github/workflows/tests.yml](.github/workflows/tests.yml): read-only permissions, no secrets, refuses committed data/model files, runs unit tests, the causal-feature script and the synthetic demo. No deployment. Green on main `5a0a5ea` (fork run #7, identical commit) and on `47896ad` (run #6). |
+| L05 | Latency tests | In review | - | 2026-11-13 | `scripts/latency.py` (standard library): p50/p95/p99, throughput and failures per stay length and concurrency, synthetic stays. Docker image, 2 CPUs: p50 41 ms / p95 67 ms / p99 116 ms for a 24 h stay, 49/75/121 ms for 336 h, one client; requests queue under concurrency (about 15-20 req/s, single worker by design). No numeric target agreed yet. `docs/serving.md`. |
+| L06 | AWS deployment design | In progress | - | 2026-11-13 | CloudFormation in `infra/cloudformation/`, static validation only (cfn-lint clean), no AWS deployment. Load balancer is now internal in private subnets by default, matching the deck's private design; `internet-facing` remains for a synthetic-only demo. README table lists what is aligned and what is not built (VPN, private API Gateway with OAuth2, SageMaker, EventBridge, Secrets Manager, CloudTrail). |
+| L07 | Prepare slides 16, 17, 18 | Not started | - | - | - |
 
 ### Person 6 - Mashie
 
@@ -92,7 +94,7 @@
 | M04 | Model card | Not started | - | - | - |
 | M05 | Risk register | In review | - | 2026-11-08 | [docs/risk-register.md](docs/risk-register.md): 25 risks with likelihood/impact, owner, evidence and remaining exposure; unresolved items left open. To do: each owner confirms their rows. |
 | M06 | Final deck assembly | Not started | - | - | - |
-| M07 | Prepare slides 10, 12, 15, 16 | Not started | - | - | - |
+| M07 | Prepare slides 13, 15, 19, 20 | Not started | - | - | - |
 
 ## Task details and acceptance criteria
 
@@ -111,7 +113,7 @@ Record verification evidence in the status tables above.
 | E04 | Preserve source provenance and the existing record-level split: A train/calibration/validation/internal test; B external test. Persist seed, hashes, and assignments. | Repeated runs reproduce assignments, every record belongs to one split, and all B is external. Document approximate 55/15/15/15 A proportions and the lack of guaranteed person-disjointness. |
 | E05 | Summarize training record/hour counts, label prevalence, record lengths, missingness, and value ranges. Use validation only for prespecified checks. | Produce reproducible aggregate tables/charts with units and denominators. Exclude test data from exploration and selection. Keep patient trajectories private and clear notebook outputs. |
 | E06 | Implement a transparent SIRS-style rule comparator using available measurements; document thresholds, missing-component handling, and applicability. | Test threshold boundaries and missing inputs; prove prefix causality. Evaluate under the agreed label and alert metrics, and state where available data cannot reproduce full clinical SIRS criteria. Do not claim it diagnoses sepsis. |
-| E07 | Prepare slides 4, 5, 8 covering Edwin's agreed data and baseline contributions. | Slides link to verified evidence, identify data/split versions, distinguish completed from planned work, and contain no patient-level outputs. Obtain team review. |
+| E07 | Prepare slides 4, 5, 9, 10 covering Edwin's agreed data and baseline contributions. | Slides link to verified evidence, identify data/split versions, distinguish completed from planned work, and contain no patient-level outputs. Obtain team review. |
 
 ### Jawad - features and metric implementation
 
@@ -123,7 +125,7 @@ Record verification evidence in the status tables above.
 | J04 | Strengthen leakage tests by corrupting hour t+1 onward and changing labels and excluded metadata. | Features through t remain identical; include scoring prefix checks for a fixed fitted model. Test record isolation and training-only preprocessing fits. Fail tests when an intentional leaking implementation is substituted. |
 | J05 | Reuse or optimize the published benchmark utility implementation without changing its semantics. | Match published/reference examples and an independent comparison within a documented tolerance. Test no-positive and censored cases. Use hourly decisions, not cooldown events; benchmark runtime on a stated workload without inventing a speed target. |
 | J06 | Keep feature creation shared across training, replay, and future serving. Expose a consistent feature order, dtype, and configuration contract. | The same history produces the same features in each consumer. Save the feature contract with model artifacts and test schema/version mismatches. Avoid duplicate notebook or API feature implementations. |
-| J07 | Prepare slide 6 explaining causal feature engineering. | Show the feature contract, imputation fit boundary, and leakage-test evidence; clearly distinguish implemented features from proposals. Obtain team review. |
+| J07 | Prepare slides 6 and 7: the end-to-end pipeline and causal feature engineering. | Show the feature contract, imputation fit boundary, and leakage-test evidence; clearly distinguish implemented features from proposals. Obtain team review. |
 
 ### Kaiyuan - models, calibration, and alarm policy
 
@@ -135,7 +137,7 @@ Record verification evidence in the status tables above.
 | K04 | Fit probability calibration on the separate calibration cohort with the underlying estimator frozen. | No estimator refit on calibration records. Report before/after Brier and calibration curves on validation, including sample sizes and bin definitions. Save and reload the calibrated pipeline. |
 | K05 | Select a validation-only threshold under the documented alert budget and apply a six-hour cooldown. | Test threshold equality, hourly timing, record resets, and no-feasible-threshold behavior. Save the chosen policy; report hourly utility and notification burden separately. Do not retune on B. |
 | K06 | Audit performance by available age and recorded-gender groups using prespecified definitions. | Include subgroup record/hour counts, positive counts, calibration, detection, and alert burden with grouped uncertainty where feasible. Flag insufficient samples and label limitations; do not claim clinical fairness from this benchmark alone. |
-| K07 | Prepare slides 3, 7, 9 covering the agreed modeling contributions. | Include model comparisons, calibration/policy settings, and subgroup limitations with traceable evidence. Distinguish validation selection from final testing. Obtain team review. |
+| K07 | Prepare slides 3, 8, 11, 12 covering the agreed modeling contributions. | Include model comparisons, calibration/policy settings, and subgroup limitations with traceable evidence. Distinguish validation selection from final testing. Obtain team review. |
 
 ### Josh - temporal feature experiments
 
@@ -146,7 +148,7 @@ Record verification evidence in the status tables above.
 | H03 | Run controlled with/without ablations for HMM and signature features. | Use the same splits, base feature contract, evaluation metrics, and declared tuning budget. Report validation performance and resource differences; defer final test comparison until choices are frozen. |
 | H04 | Optional: evaluate training-fitted GMM memberships as an additional representation. | Approve scope first; test deterministic fitting, held-out transformation, and prefix-safe inputs. Compare against the baseline on validation; do not interpret components as validated sepsis subtypes. |
 | H05 | Optional: prototype a GRU using causal histories with record-level sequence handling. | Approve dependency and compute scope first. Test padding/masking, hidden-state resets, and prefix scoring. Log training settings and resource use; use no future labels/observations as inputs. |
-| H06 | Prepare slide 11 explaining temporal representations and ablations. | Include forward-only diagrams, with/without evidence, compute trade-offs, and limitations. Label deferred experiments explicitly. Obtain team review. |
+| H06 | Prepare slide 14 explaining temporal representations and ablations. | Include forward-only diagrams, with/without evidence, compute trade-offs, and limitations. Label deferred experiments explicitly. Obtain team review. |
 
 ### leo - reproducibility and serving
 
@@ -158,7 +160,7 @@ Record verification evidence in the status tables above.
 | L04 | Add reviewed GitHub Actions for focused tests and approved build checks; keep deployment separate until authorized. | Workflows run on synthetic fixtures, use least-privilege permissions, and never expose patient data or secrets. Use internal language setup actions first. Verify the configured checks actually execute; do not add unattended clinical deployment. |
 | L05 | Measure end-to-end service latency for agreed request sizes and concurrency. | Report p50/p95/p99, throughput, failures, cold/warm behavior, hardware, and workload. Include feature computation and artifact loading where applicable. Agree a numeric target before treating it as a pass/fail gate. |
 | L06 | Produce a modular, statically validated CloudFormation design; do not deploy it before project readiness and owner approval. | Separate networking, artifact/state, service, and monitoring templates. Document the public unauthenticated research-demo boundary, private task networking, encryption, data locations, monitoring, rollback, cost, and validation limits. Obtain owner review before provisioning or uploading anything. |
-| L07 | Prepare slides 13, 14 covering tracking, serving, and deployment design. | Clearly separate working local capabilities from proposed cloud architecture. Include reproducibility and latency evidence without credentials or patient data. Obtain team review. |
+| L07 | Prepare slides 16, 17, 18 covering tracking, serving, and deployment design. | Clearly separate working local capabilities from proposed cloud architecture. Include reproducibility and latency evidence without credentials or patient data. Obtain team review. |
 
 ### Mashie - replay, monitoring, explanations, and reporting
 
@@ -170,7 +172,7 @@ Record verification evidence in the status tables above.
 | M04 | Write a model card covering intended use, dataset/label semantics, splits, features, selection, calibration, metrics, and limitations. | Cite reproducible run evidence and subgroup results. Include privacy, missingness/shift sensitivity, timing/censoring, out-of-scope clinical use, and unresolved gaps. Obtain team review. |
 | M05 | Maintain a risk register covering leakage, data quality, source shift, privacy, fairness, alert fatigue, licensing, and operational failures. | Each risk has likelihood/impact, owner, mitigation, evidence, and remaining exposure. Record unresolved risks instead of marking unsupported mitigations complete. |
 | M06 | Assemble the final deck from the reviewed owner contributions. | Check slide order, terminology, units, denominators, citations, and agreement between results and artifacts. Remove patient-level outputs and unsupported clinical claims; complete a team walkthrough. |
-| M07 | Prepare slides 10, 12, 15, 16 covering Mashie's agreed evaluation and reporting contributions. | Include frozen-model replay, monitoring design, explanations/risks, and final limitations as agreed with the team. Label synthetic and real-cohort evidence separately. Obtain team review. |
+| M07 | Prepare slides 13, 15, 19, 20 covering Mashie's agreed evaluation and reporting contributions. | Include frozen-model replay, monitoring design, explanations/risks, and final limitations as agreed with the team. Label synthetic and real-cohort evidence separately. Obtain team review. |
 
 ## Shared project boundaries
 

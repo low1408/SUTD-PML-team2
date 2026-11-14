@@ -22,10 +22,17 @@ Parameters:
   PrivateSubnetBCidr:
     Type: String
     Default: 10.40.12.0/24
+  LoadBalancerScheme:
+    Type: String
+    Default: internal
+    AllowedValues:
+      - internal
+      - internet-facing
+    Description: internal (default) matches the deck's private design; reach it over the hospital VPN or from inside the VPC. internet-facing is for a synthetic-only public demo.
   AllowedSourceCidr:
     Type: String
-    Default: 0.0.0.0/0
-    Description: IPv4 CIDR permitted to reach the public load balancer. Narrow before deployment.
+    Default: 10.40.0.0/16
+    Description: IPv4 CIDR permitted to reach the load balancer. Defaults to the VPC; add the hospital VPN range when one exists. Never 0.0.0.0/0 with real data.
   ScoringImageUri:
     Type: String
     Default: ""
@@ -40,7 +47,7 @@ Parameters:
   CertificateArn:
     Type: String
     Default: ""
-    Description: Optional ACM certificate ARN for HTTPS on the public load balancer.
+    Description: Optional ACM certificate ARN for HTTPS on the load balancer.
   ApiHostname:
     Type: String
     Default: ""
@@ -116,6 +123,7 @@ Resources:
         PublicSubnetIds: !GetAtt Network.Outputs.PublicSubnetIds
         PrivateSubnetIds: !GetAtt Network.Outputs.PrivateSubnetIds
         AllowedSourceCidr: !Ref AllowedSourceCidr
+        LoadBalancerScheme: !Ref LoadBalancerScheme
         ScoringImageUri: !Ref ScoringImageUri
         CertificateArn: !Ref CertificateArn
         ApiHostname: !Ref ApiHostname

@@ -24,6 +24,13 @@ from .monitoring import REPLAY_SPLITS, MonitoringConfig, replay_monitoring, setu
 from .policy import apply_policy, summarize, tune_threshold
 from .prepare import prepare_parquet, write_summary
 from .report import write_report
+from .scoring import load_bundle
+from .splits import write_splits
+from .tracking import check_tracking_uri, log_run, require_mlflow, run_metadata
+from .ward import (
+    HELD_OUT_SPLITS, SELECTION_SPLITS, build_payload, check_split, choose_stays,
+    score_locally, score_via_api, write_ward,
+)
 from .schema import extreme_value_counts, validate_hourly
 from .sirs_failures import failure_tables
 from .splits import load_split_patients, write_splits
@@ -63,21 +70,25 @@ def run_experiment(args):
     if args.output.exists() and any(args.output.iterdir()):
         raise ValueError(f"{args.output} is not empty; use a new output directory")
     args.output.mkdir(parents=True, exist_ok=True)
-    synthetic = (args.data / "SYNTHETIC.json").exists()
-    print("Data mode:", "SYNTHETIC SOFTWARE FIXTURE" if synthetic else "PhysioNet records", flush=True)
-    patients = load_patients(args.data)
-    if not synthetic and any("synthetic_" in p.patient_id for p in patients):
-        raise ValueError("Synthetic filenames found without SYNTHETIC.json marker")
-    splits = split_patients(patients, args.seed)
+    splits, synthetic = load_cohorts(args)
     manifest = []
     for name, cohort in splits.items():
         print(f"{name}: {len(cohort)} patients", flush=True)
         for patient in cohort:
-            path = args.data / f"training_set{patient.hospital}" / f"{patient.patient_id.split(':', 1)[1]}.psv"
+            pid = patient.patient_id.split(":", 1)[1] if ":" in patient.patient_id else patient.patient_id
+            if not args.data.is_file():
+                path = args.data / f"training_set{patient.hospital}" / f"{pid}.psv"
+                sha = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+            else:
+                path = args.data.parent / f"training_set{patient.hospital}" / f"{pid}.psv"
+                if path.exists():
+                    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+                else:
+                    sha = hashlib.sha256(patient.patient_id.encode("utf-8")).hexdigest()
             manifest.append({
                 "patient_id": patient.patient_id, "hospital": patient.hospital,
                 "split": name, "septic": patient.septic,
-                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "sha256": sha,
             })
     pd.DataFrame(manifest).to_csv(args.output / "split_manifest.csv", index=False)
     # Only source training/calibration/validation features are built before
@@ -133,11 +144,30 @@ def run_experiment(args):
     }
     write_json(args.output / "config.json", config)
     write_json(args.output / "metrics.json", summary)
+    splits_summary = args.splits_summary
+    if splits_summary is None and args.data.is_file():
+        splits_path = getattr(args, "splits", None) or args.data.with_name("splits.csv")
+        candidate = splits_path.with_name(f"{splits_path.name}.summary.json")
+        if candidate.exists():
+            try:
+                candidate_seed = json.loads(candidate.read_text(encoding="utf-8")).get("seed")
+                if candidate_seed is not None and int(candidate_seed) == int(args.seed):
+                    splits_summary = candidate
+            except Exception:
+                pass
+    write_json(args.output / "run_metadata.json", run_metadata(
+        args.seed, synthetic=synthetic, window=args.window, budget=args.budget,
+        cooldown=args.cooldown, feature_columns=columns,
+        splits_summary=splits_summary, dvc_lock=args.dvc_lock,
+    ))
     replay = pd.concat(predictions, ignore_index=True)
     replay.to_csv(args.output / "held_out_predictions.csv", index=False)
     write_report(args.output / "replay.html", replay, summary, threshold, synthetic)
     print(f"Selected: {name}; threshold={threshold:.2f}", flush=True)
     print(f"Replay: {(args.output / 'replay.html').resolve()}", flush=True)
+    if args.mlflow_uri:
+        run_id = log_run(args.output, args.mlflow_uri)
+        print(f"MLflow run: {run_id}", flush=True)
 
 
 BASELINE_SPLITS = ["validation", "internal_test", "external_test"]
@@ -201,6 +231,26 @@ def run_baselines(args):
     return result
 
 
+def run_server(args):
+    if args.host not in ("127.0.0.1", "localhost", "::1") and not args.allow_non_local_host:
+        raise ValueError(f"--host {args.host} exposes an unauthenticated API; pass --allow-non-local-host if agreed")
+    try:
+        import uvicorn
+
+        from .api import create_app
+    except ImportError as error:
+        raise RuntimeError("the API needs the serve extra; run `pip install -e .[serve]`") from error
+    from .service import ModelMismatch, ScoringService
+
+    try:
+        service = ScoringService.from_path(args.model, args.model_sha256)
+    except ModelMismatch as error:
+        raise ValueError(str(error)) from error
+    health = service.health()
+    print(f"Serving {health['model_name']} (bundle {health['bundle_sha256'][:12]}) on {args.host}:{args.port}", flush=True)
+    if health["synthetic_model"]:
+        print("WARNING: synthetic fixture model; scores are meaningless", flush=True)
+    uvicorn.run(create_app(service), host=args.host, port=args.port, workers=1)
 def run_sirs_failures(args):
     """Aggregate SIRS failure patterns. Validation split only, by design."""
     cohorts, _ = load_cohorts(args)
@@ -233,19 +283,61 @@ DATA_HELP = "combined.parquet (uses the saved split), or a folder of training_se
 SPLITS_HELP = "Saved split for a Parquet --data; defaults to splits.csv next to it"
 
 
+def run_ward(args):
+    """Write the ICU ward replay page for a saved model (see ward.py)."""
+    check_split(args.split, args.after_freeze)
+    if args.output.exists():
+        raise ValueError(f"{args.output} already exists; choose a new output file")
+    cohorts, synthetic = load_cohorts(args)
+    cohort = cohorts[args.split]
+    stays = choose_stays(cohort, args.beds, args.septic_share, args.max_hours, args.seed)
+    if args.api_url:
+        frames, details = score_via_api(args.api_url, stays)
+        if bool(details["synthetic_model"]) != synthetic:
+            raise ValueError("The API's model and the data disagree on whether they are synthetic")
+        model_name, threshold, cooldown = details["model_name"], details["threshold"], details["cooldown_hours"]
+        scored_by = f"POST /score on {args.api_url}, one request per bed, as the hospital engine would send"
+    else:
+        bundle = load_bundle(args.model)
+        if bool(bundle["synthetic"]) != synthetic:
+            raise ValueError("The model bundle and the data disagree on whether they are synthetic")
+        frames = score_locally(bundle, stays)
+        model_name, threshold, cooldown = bundle["model_name"], bundle["threshold"], bundle["cooldown"]
+        scored_by = "Saved model scored in-process, with the same feature code as the API"
+    payload = build_payload(
+        frames, model_name=model_name, threshold=threshold, cooldown=cooldown, synthetic=synthetic,
+        split=args.split, scored_by=scored_by, seed=args.seed,
+        cohort_septic_share=sum(p.septic for p in cohort) / len(cohort),
+    )
+    write_ward(args.output, payload)
+    if not synthetic:
+        print("Contains PhysioNet stays: keep it private and out of Git.", flush=True)
+    print(f"Ward replay: {args.output.resolve()}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     demo = sub.add_parser("demo", help="Generate an explicitly synthetic fixture and run it")
     demo.add_argument("--data", type=Path, default=Path("data/synthetic"))
-    for command in [demo, sub.add_parser("train", help="Run on downloaded training_setA/B")]:
+    for command in [demo, sub.add_parser("train", help="Run on downloaded training_setA/B or combined.parquet")]:
         if command is not demo:
-            command.add_argument("--data", type=Path, required=True)
+            command.add_argument("--data", type=Path, required=True, help=DATA_HELP)
+            command.add_argument("--splits", type=Path, default=None, help=SPLITS_HELP)
         command.add_argument("--output", type=Path, default=Path("artifacts/demo" if command is demo else "artifacts/real"))
         command.add_argument("--seed", type=int, default=42)
         command.add_argument("--window", type=int, default=6)
         command.add_argument("--budget", type=float, default=0.2)
         command.add_argument("--cooldown", type=int, default=6)
+        command.add_argument(
+            "--splits-summary", type=Path, default=None,
+            help="splits.csv.summary.json from `split`; its seed and hashes are logged and the seed must match",
+        )
+        command.add_argument("--dvc-lock", type=Path, default=None, help="dvc.lock whose output hashes are logged")
+        command.add_argument(
+            "--mlflow-uri", default=None,
+            help="Local MLflow store, e.g. file:artifacts/mlruns (needs the tracking extra)",
+        )
     replay = sub.add_parser("replay", help="Score a patient PSV with a saved model")
     replay.add_argument("--model", type=Path, required=True)
     replay.add_argument("--patient", type=Path, required=True)
@@ -329,8 +421,35 @@ def main():
     monitor_replay.add_argument("--reference", type=Path, required=True, help="monitoring_reference.json")
     monitor_replay.add_argument("--split", choices=REPLAY_SPLITS, default="external_test")
     monitor_replay.add_argument("--output", type=Path, default=Path("artifacts/monitoring/replay"))
+    serve = sub.add_parser("serve", help="Local research scoring API for a saved model (needs the serve extra)")
+    serve.add_argument("--model", type=Path, required=True, help="model.joblib produced by train/demo")
+    serve.add_argument("--model-sha256", default=None, help="Refuse to start unless the bundle has this SHA-256")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument(
+        "--allow-non-local-host", action="store_true",
+        help="Bind beyond localhost. The API has no authentication; agree this with the team first",
+    )
+    ward = sub.add_parser("ward", help="Write an ICU ward replay page for a saved model (research demo)")
+    ward.add_argument("--model", type=Path, help="model.joblib produced by train/demo (not needed with --api-url)")
+    ward.add_argument("--api-url", default=None, help="Score through a running API instead, e.g. http://127.0.0.1:8000")
+    ward.add_argument("--data", type=Path, required=True, help=DATA_HELP)
+    ward.add_argument("--splits", type=Path, help=SPLITS_HELP)
+    ward.add_argument("--split", choices=SELECTION_SPLITS + HELD_OUT_SPLITS, default="validation")
+    ward.add_argument("--after-freeze", action="store_true",
+                      help="Allow internal_test or external_test; only once the model is frozen")
+    ward.add_argument("--beds", type=int, default=12)
+    ward.add_argument("--septic-share", type=float, default=0.3,
+                      help="Share of beds given to stays that become septic (over-represented for the demo)")
+    ward.add_argument("--max-hours", type=int, default=72, help="Hours shown per stay")
+    ward.add_argument("--seed", type=int, default=42)
+    ward.add_argument("--output", type=Path, default=Path("artifacts/ward/ward.html"))
     args = parser.parse_args()
     try:
+        if args.command in ["demo", "train"] and args.mlflow_uri:
+            # Fail before generating data or training, not after it.
+            check_tracking_uri(args.mlflow_uri)
+            require_mlflow()
         if args.command == "demo":
             generate_synthetic(args.data, args.seed)
             write_json(args.data / "SYNTHETIC.json", {"purpose": "Software test only", "seed": args.seed})
@@ -350,6 +469,14 @@ def main():
             args.output.parent.mkdir(parents=True, exist_ok=True)
             table.to_csv(args.output, index=False)
             print(args.output.resolve())
+        elif args.command == "serve":
+            run_server(args)
+        elif args.command == "ward":
+            if not args.model and not args.api_url:
+                raise ValueError("pass --model, or --api-url for a running API")
+            if args.max_hours < 1:
+                raise ValueError("max-hours must be positive")
+            run_ward(args)
         elif args.command == "baseline":
             if args.cooldown < 0:
                 raise ValueError("cooldown must be nonnegative")
@@ -429,6 +556,6 @@ def main():
                 f"Records: {summary['records']}; hourly rows: "
                 f"{summary['hourly_rows']}"
             )
-    except (ValueError, FileExistsError) as error:
+    except (ValueError, FileExistsError, RuntimeError) as error:
         # FileExistsError: prepare refuses to overwrite; show a message, not a traceback.
         parser.error(str(error))

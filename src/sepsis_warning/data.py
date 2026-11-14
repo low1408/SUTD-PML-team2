@@ -34,24 +34,28 @@ class Patient:
 
 
 def read_patient(path: Path, require_labels=True) -> pd.DataFrame:
-    frame = pd.read_csv(path, sep="|")
+    return validate_record(pd.read_csv(path, sep="|"), path, require_labels)
+
+
+def validate_record(frame: pd.DataFrame, source, require_labels=True) -> pd.DataFrame:
+    """Shared record checks for files and service requests. Raises ValueError."""
     required = set(DYNAMIC + STATIC + (["SepsisLabel"] if require_labels else []))
     missing = required - set(frame)
     if missing:
-        raise ValueError(f"{path}: missing columns {sorted(missing)}")
+        raise ValueError(f"{source}: missing columns {sorted(missing)}")
     if frame.empty:
-        raise ValueError(f"{path}: empty record")
+        raise ValueError(f"{source}: empty record")
     frame = frame.apply(pd.to_numeric, errors="raise")
     if np.isinf(frame.to_numpy()).any():
-        raise ValueError(f"{path}: infinite measurement")
+        raise ValueError(f"{source}: infinite measurement")
     if "SepsisLabel" in frame:
         labels = frame["SepsisLabel"]
         if not labels.isin([0, 1]).all() or (labels.diff().dropna() < 0).any():
-            raise ValueError(f"{path}: expected binary, nondecreasing challenge labels")
+            raise ValueError(f"{source}: expected binary, nondecreasing challenge labels")
     if frame["ICULOS"].isna().any() or not np.allclose(
         np.diff(frame["ICULOS"]), 1
     ):
-        raise ValueError(f"{path}: expected consecutive hourly ICULOS")
+        raise ValueError(f"{source}: expected consecutive hourly ICULOS")
     return frame.reset_index(drop=True)
 
 

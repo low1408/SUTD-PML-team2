@@ -11,7 +11,7 @@ import pandas as pd
 
 from sepsis_warning.data import generate_synthetic, load_patients, split_patients
 from sepsis_warning.prepare import prepare_parquet
-from sepsis_warning.cli import run_baselines
+from sepsis_warning.cli import run_baselines, run_experiment
 from sepsis_warning.splits import load_split_patients, load_splits, write_splits
 
 
@@ -95,6 +95,18 @@ class Splits(unittest.TestCase):
         from_parquet = run_baselines(Namespace(
             data=self.parquet, output=self.root / "b2", figures=self.root / "f2", **common))
         pd.testing.assert_frame_equal(from_psv, from_parquet)
+
+    def test_train_runs_from_parquet(self):
+        write_splits(self.parquet, self.root / "splits.csv", 42)
+        out_parquet = self.root / "train_parquet"
+        run_experiment(Namespace(
+            data=self.parquet, splits=None, output=out_parquet, seed=42, window=6,
+            budget=0.2, cooldown=6, splits_summary=None, dvc_lock=None, mlflow_uri=None,
+        ))
+        self.assertTrue((out_parquet / "model.joblib").exists())
+        self.assertTrue((out_parquet / "validation_models.csv").exists())
+        self.assertTrue((out_parquet / "metrics.json").exists())
+        self.assertTrue((out_parquet / "split_manifest.csv").exists())
 
 
 if __name__ == "__main__":

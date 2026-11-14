@@ -1,6 +1,8 @@
 ## Standard docs
 
 - Purpose, architecture, implemented capabilities, and research limitations: [README.md](README.md).
+- Code map, module ownership, data contracts, CLI commands, and test guidance: [docs/agent-repository-guide.md](docs/agent-repository-guide.md).
+- Real-data testing workflow and staged PhysioNet evaluation: [docs/testing/real-data.md](docs/testing/real-data.md).
 - Installation, data download/preparation, notebook setup, experiments, and replay: [README.md](README.md).
 - Task ownership and slide assignments: [TEAM-TASKS.md](TEAM-TASKS.md). No `CONTRIBUTING.md` or documented branching/commit conventions exist; confirm workflow with the team.
 
@@ -10,17 +12,18 @@
 - Use `uv pip install --python .venv/bin/python -e .` for editable installation when uv is available. Dependencies are declared in [pyproject.toml](pyproject.toml); no dependency lockfile exists.
 - Downloaded data belongs under project-root `data/physionet/`, not a hardcoded personal path or an external project's dataset. Run data commands from the project root and use their documented `--data`/`--output` arguments.
 - `python -m sepsis_warning prepare` creates combined Parquet, but training and replay still read per-record PSV files. The [notebook](src/notebooks/data_check.ipynb) reads Parquet and locates the checkout before importing the local package.
-- The current stack is NumPy, pandas, SciPy, scikit-learn, Joblib, PyArrow, Matplotlib, and unittest. Pandera and DVC are optional installs (E03, E02). LightGBM, MLflow, FastAPI, Docker, and deployment work in the task tracker are planned, not installed or implemented by default.
+- The current stack is NumPy, pandas, SciPy, scikit-learn, Joblib, PyArrow, Matplotlib, and unittest. Pandera and DVC are optional installs (E03, E02). MLflow tracking and the FastAPI research service are implemented behind optional extras; LightGBM, Docker packaging, and cloud deployment remain planned or design-only.
 
 ## Definition of done
 
 - Add or update tests for changed behavior. Run relevant tests first rather than repeatedly running the full suite.
+- Every new or changed feature must include documented testing steps: add or update focused unit/regression tests, record the command used to run them, and update the relevant testing guide when the workflow or expected outputs changes.
 - Run the existing suite from the project root when the change spans shared behavior:
   `MPLBACKEND=Agg .venv/bin/python -m unittest discover -s tests -v`
 - For feature changes, verify prefix invariance, future-measurement corruption, record-local imputation, and exclusion of labels/metadata. For policy changes, verify cooldown resets, hourly decision versus notification accounting, utility, and censored lead-time handling.
 - Verify data preparation preserves original values, missingness, labels, source provenance, and record/hour counts. Never use a synthetic fixture to claim real-cohort performance.
 - Verify notebook execution with the selected kernel, not just terminal Python. Clear saved outputs before sharing or committing.
-- No lint, build, or CI quality gate is currently configured. Do not invent commands or claim these checks passed.
+- GitHub Actions ([.github/workflows/tests.yml](.github/workflows/tests.yml)) runs the unit tests, the causal-feature script and the synthetic demo on pull requests. There is no lint step. Do not claim checks passed without looking at the run.
 
 ## Conventions
 

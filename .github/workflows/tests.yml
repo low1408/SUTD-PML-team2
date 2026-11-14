@@ -1,0 +1,75 @@
+# L04: focused tests on synthetic fixtures only. No deployment, no secrets,
+# no patient data. Changes to this file need owner review.
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MPLBACKEND: Agg
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Refuse patient data or model files in Git
+        run: |
+          found=$(git ls-files -- '*.psv' '*.joblib' '*.pkl' '*.pickle' '*.parquet' 'data/*' 'artifacts/*')
+          if [ -n "$found" ]; then
+            echo "These files must not be committed:"
+            echo "$found"
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package with the API extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[serve,test]"
+          python -m pip list
+
+      - name: Unit tests (synthetic fixtures)
+        run: python -m unittest discover -s tests -v
+
+      - name: Causal feature demo script
+        run: python scripts/causal_features.py
+
+      - name: End-to-end synthetic demo
+        run: |
+          python -m sepsis_warning demo \
+            --data "$RUNNER_TEMP/synthetic" \
+            --output "$RUNNER_TEMP/demo"
+          test -f "$RUNNER_TEMP/demo/run_metadata.json"
+
+  # L03: build the scoring image and smoke-test it with synthetic data only.
+  # Nothing is pushed to a registry.
+  docker-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build and smoke-test the scoring image
+        run: bash scripts/docker_smoke_test.sh sepsis-warning:ci

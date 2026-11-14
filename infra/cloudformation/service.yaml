@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Public ALB and private Fargate scoring service; no API Gateway or authentication.
+Description: Load balancer (internal by default) and private Fargate scoring service; no API Gateway or authentication yet.
 
 Parameters:
   EnvironmentName:
@@ -12,6 +12,12 @@ Parameters:
     Type: CommaDelimitedList
   AllowedSourceCidr:
     Type: String
+  LoadBalancerScheme:
+    Type: String
+    Default: internal
+    AllowedValues:
+      - internal
+      - internet-facing
   ScoringImageUri:
     Type: String
   CertificateArn:
@@ -39,6 +45,7 @@ Parameters:
 
 Conditions:
   HasCertificate: !Not [!Equals [!Ref CertificateArn, ""]]
+  IsInternal: !Equals [!Ref LoadBalancerScheme, internal]
 
 Resources:
   Cluster:
@@ -119,7 +126,7 @@ Resources:
   LoadBalancerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Public web ingress to the research scoring service.
+      GroupDescription: Ingress from AllowedSourceCidr to the research scoring service.
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -166,15 +173,16 @@ Resources:
   LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Scheme: internet-facing
+      Scheme: !Ref LoadBalancerScheme
       Type: application
       IpAddressType: ipv4
-      Subnets: !Ref PublicSubnetIds
+      # Internal: private subnets, reachable only from the VPC or a connected VPN.
+      Subnets: !If [IsInternal, !Ref PrivateSubnetIds, !Ref PublicSubnetIds]
       SecurityGroups:
         - !Ref LoadBalancerSecurityGroup
       Tags:
         - Key: Name
-          Value: !Sub "${EnvironmentName}-public-alb"
+          Value: !Sub "${EnvironmentName}-alb"
 
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
