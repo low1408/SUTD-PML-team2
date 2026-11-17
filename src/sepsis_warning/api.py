@@ -19,7 +19,7 @@ binds to 127.0.0.1, and AWS deployments put IAM in front.
 
 import time
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -44,7 +44,10 @@ HourRecord = create_model(
     __config__=ConfigDict(extra="allow"),
     __doc__="One ICU hour. ICULOS is required; any other field may be omitted or null (not measured).",
     # strict: a JSON number or null only; true/false and numeric strings are refused.
-    **{name: (float | None, Field(default=None, allow_inf_nan=False, strict=True)) for name in INPUT_COLUMNS},
+    **cast(Any, {
+        name: (float | None, Field(default=None, allow_inf_nan=False, strict=True))
+        for name in INPUT_COLUMNS
+    }),
 )
 
 
