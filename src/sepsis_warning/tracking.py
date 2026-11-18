@@ -27,6 +27,8 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
+import pandas as pd
+
 PACKAGES = ["numpy", "pandas", "scipy", "scikit-learn", "joblib", "pyarrow"]
 
 # Aggregate outputs only. held_out_predictions.csv, split_manifest.csv,
@@ -37,6 +39,9 @@ LOGGABLE_ARTIFACTS = {"config.json", "selection_metrics.json", "validation_model
                       "extreme_value_review_train.csv"}
 DEFAULT_TRACKING_URI = "sqlite:///artifacts/mlflow.db"
 SELECTION_EXPERIMENT = "sepsis-warning-selection"
+TUNING_EXPERIMENT = "sepsis-warning-tuning"
+# Aggregate files from `tune`: scores per configuration, never patient-level rows.
+TUNING_ARTIFACTS = ("tuning_results.csv", "tuning_best.json", "tuned_models.toml")
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
@@ -238,6 +243,52 @@ def _require_sagemaker_plugin():
         raise RuntimeError(
             "an MLflow App URI needs the sagemaker-mlflow plugin; run `pip install -e .[sagemaker]`"
         ) from error
+
+
+def log_tuning(output_dir: Path, tracking_uri: str, experiment: str = TUNING_EXPERIMENT,
+               mlflow_module=None) -> str:
+    """Log a finished ``tune`` directory: one parent run, one nested run per configuration tried.
+
+    Each trial run holds its parameters and cross-validation scores, so MLflow's
+    compare view shows the whole search. Returns the parent run id. Only
+    training-split cross-validation numbers exist here; nothing from the
+    calibration, validation or test splits.
+    """
+    output_dir = Path(output_dir)
+    check_tracking_uri(tracking_uri)
+    if mlflow_module is None:
+        mlflow_module = require_mlflow()
+    summary = json.loads((output_dir / "tuning_best.json").read_text(encoding="utf-8"))
+    trials = [json.loads(line) for line in
+              pd.read_csv(output_dir / "tuning_results.csv").to_json(orient="records", lines=True).splitlines()]
+    prepare_store(tracking_uri, experiment, mlflow_module)
+    with mlflow_module.start_run(run_name="tune") as run:
+        mlflow_module.set_tags({"run_kind": "tuning", "research_only": "true",
+                                "selection_metric": summary["selection_metric"]})
+        mlflow_module.log_params({
+            "folds": summary["folds"], "trials_per_model": summary["trials_per_model"], "seed": summary["seed"],
+            "stays_used": summary["stays_used"], "window_hours": summary["window_hours"],
+            "models_config_sha256": summary.get("models_config_sha256", ""),
+            "space_sha256": summary.get("space_sha256", ""),
+        })
+        for model, best in summary["models"].items():
+            mlflow_module.log_metrics({f"best.{model}.cv_ap_mean": best["cv_ap_mean"],
+                                       f"reference.{model}.cv_ap_mean": best["reference_cv_ap_mean"],
+                                       f"gain.{model}.cv_ap": best["ap_gain_over_reference"]})
+        for name in TUNING_ARTIFACTS:
+            if (output_dir / name).exists():
+                mlflow_module.log_artifact(str(output_dir / name))
+        for trial in trials:
+            with mlflow_module.start_run(run_name=f"{trial['model']}-{trial['trial']}", nested=True):
+                mlflow_module.set_tags({"model": trial["model"], "run_kind": "tuning_trial",
+                                        "reference": str(bool(trial["is_reference"])).lower(),
+                                        "best": str(summary["models"][trial["model"]]["trial"] == trial["trial"]).lower()})
+                mlflow_module.log_params({f"param.{key}": str(value)[:250]
+                                          for key, value in json.loads(trial["params"]).items()})
+                mlflow_module.log_metrics(_numeric({key: trial[key] for key in
+                                                   ("cv_ap_mean", "cv_ap_std", "cv_auroc_mean", "cv_auroc_std",
+                                                    "folds_scored", "fit_seconds")}, ""))
+        return run.info.run_id
 
 
 def require_mlflow():

@@ -1,0 +1,25 @@
+# Search space for `python -m sepsis_warning tune`.
+#
+# Each parameter lists the values the search may pick. A model's own settings in
+# models.toml are always tried first as the reference ("default") configuration, so
+# the report can say how much tuning gained over the hand-picked values.
+#
+# Only the models listed here are tuned. The constant prior has nothing to tune, and
+# the NumPy re-implementations are left out because they are far slower to search.
+# The SHA-256 of this file is recorded in every tuning result.
+
+[logistic_regression]
+C = [0.01, 0.03, 0.1, 0.3, 1.0, 3.0]
+
+[random_forest]
+n_estimators = [60, 100, 150]
+max_depth = [6, 8, 10, 12]
+min_samples_leaf = [10, 20, 40]
+max_features = ["sqrt", 0.3]
+
+[hist_gradient_boosting]
+learning_rate = [0.03, 0.06, 0.1]
+max_iter = [100, 200, 300]
+max_leaf_nodes = [7, 15, 31]
+l2_regularization = [0.5, 2.0, 8.0]
+min_samples_leaf = [20, 50, 100]

@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  GitHub Actions OIDC provider and the role .github/workflows/deploy.yml assumes
+  (AWS_DEPLOY_ROLE_ARN). Deploy once per AWS account and environment, by hand, with
+  `bash scripts/aws_deploy.sh github-oidc`. Not part of root.yaml: the deploy role
+  has to exist before the workflow can create that stack.
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Description: owner/name of the repository that runs the deploy workflow (case-sensitive, as GitHub shows it).
+    AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+  DeployEnvironment:
+    Type: String
+    Description: >
+      GitHub environment the workflow job runs in. deploy.yml sets `environment:` on the job,
+      so GitHub's token subject is repo:<owner>/<name>:environment:<env>, not ...:ref:refs/heads/main.
+    AllowedValues: [dev, staging, prod]
+  CreateOidcProvider:
+    Type: String
+    Description: false when the account already has token.actions.githubusercontent.com (one per account).
+    AllowedValues: ["true", "false"]
+    Default: "true"
+  DeployPolicyArns:
+    Type: CommaDelimitedList
+    Description: >
+      Managed policies for the deploy role. The workflow runs `aws_deploy.sh stack`, which creates
+      IAM roles, KMS keys, S3, ECR, Lambda and more, so it needs broad rights; narrow this once the
+      stack exists.
+    Default: arn:aws:iam::aws:policy/AdministratorAccess
+
+Conditions:
+  MakeProvider: !Equals [!Ref CreateOidcProvider, "true"]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: MakeProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub github-deploy-${DeployEnvironment}
+      Description: !Sub Assumed by ${GitHubRepo} deploy.yml in the GitHub environment ${DeployEnvironment}
+      MaxSessionDuration: 3600
+      ManagedPolicyArns: !Ref DeployPolicyArns
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - MakeProvider
+                - !Ref GitHubOidcProvider
+                - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepo}:environment:${DeployEnvironment}
+
+Outputs:
+  DeployRoleArn:
+    Description: Set this as the AWS_DEPLOY_ROLE_ARN variable of the matching GitHub environment.
+    Value: !GetAtt DeployRole.Arn

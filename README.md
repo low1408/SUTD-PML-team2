@@ -505,6 +505,27 @@ deploy and rollback), see [docs/local-production.md](docs/local-production.md):
 bash scripts/local_prod.sh up && bash scripts/local_prod.sh test
 ```
 
+## Tune, evaluate and write the report
+
+```bash
+# 1. Hyperparameter search: patient-grouped cross-validation on the training split only, logged to MLflow.
+python -m sepsis_warning tune --data data/physionet/combined.parquet --output artifacts/tuning \
+  --trials 12 --folds 3 --mlflow-uri sqlite:///mlflow.db
+# 2. Train with the tuned settings (validation picks the model and threshold; test is untouched).
+python -m sepsis_warning train --data data/physionet/combined.parquet --output artifacts/real \
+  --models-config artifacts/tuning/tuned_models.toml --include-numpy-models
+# 3. One script for the results: metrics table, PR curves and the other figures.
+python -m sepsis_warning model-report --run artifacts/real --output reports/results --tuning artifacts/tuning
+```
+
+`tune` never reads calibration, validation or test data; it writes `tuning_results.csv`, `tuning_best.json` and
+`tuned_models.toml`, and logs one nested MLflow run per configuration to the `sepsis-warning-tuning` experiment.
+`model-report` fits nothing: it reads the files `train` wrote and writes `metrics_table.md/.csv` (accuracy,
+precision, recall, F1, average precision, AUROC, hourly utility, stay-grouped 95% intervals, SIRS baseline), the
+figures, `figures_manifest.json` and `FIGURES.md` (each figure's recreate command, also printed on the image) and
+`environment.json`. After the model is frozen and `evaluate` has run once, add `--evaluation <evaluate folder>` for
+the test-split table and curves. The report skeleton with the 11 required sections is `reports/final/report.md`.
+
 ## Deploy to AWS (serverless)
 
 The default AWS design costs nothing while idle (roughly $2-5 a month plus a

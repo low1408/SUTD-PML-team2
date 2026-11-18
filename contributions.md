@@ -53,35 +53,35 @@ Slide numbers follow the 22-slide deck in `docs/presentation/` (see its README f
 
 | ID | Task | Status | Due date | Updated | Evidence / notes |
 |---|---|---|---|---|---|
-| K01 | Logistic regression | Not started | - | - | - |
-| K02 | Random forest | Not started | - | - | - |
-| K03 | LightGBM as the main model | Not started | - | - | - |
-| K04 | Probability calibration | Not started | - | - | - |
-| K05 | Alarm threshold and six-hour cooldown | Not started | - | - | - |
-| K06 | Fairness checks | Not started | - | - | - |
-| K07 | Prepare slides 3, 8, 11, 12 | Not started | - | - | - |
+| K01 | Logistic regression | In review | - | 2026-11-16 | Verified on main cb49451: pure NumPy logistic regression (`src/sepsis_warning/logistic.py`: Newton/IRLS with line search) and its tests (`tests/test_logistic.py`). Parity with scikit-learn is tested (`tests/test_model_config.py`, AUROC within 0.03). Not a default candidate: enable with `train --include-numpy-models`. The benchmark numbers quoted before refer to `artifacts/sklearn_benchmark/`, which is not in the repository. |
+| K02 | Random forest | In review | - | 2026-11-16 | Verified on main cb49451: pure NumPy random forest (`src/sepsis_warning/random_forest.py`, tests in `tests/test_random_forest.py`). Ranks close to scikit-learn but has a weaker operating point (documented in PR #68 review). Optional candidate (`--include-numpy-models`). Benchmark numbers refer to `artifacts/sklearn_benchmark/`, not in the repository. |
+| K03 | LightGBM as the main model | In review | - | 2026-11-16 | Verified on main cb49451: NumPy gradient boosting (`src/sepsis_warning/gradient_boosting.py`, `histogram_trees.py`, tests in `tests/test_gradient_boosting.py`). Scope note: this is a histogram gradient-boosting re-implementation, not LightGBM. Owner to confirm this meets the item. Optional candidate; the default main model is chosen by validation utility from the candidates in `models.toml`. |
+| K04 | Probability calibration | In review | - | 2026-11-16 | Verified on main cb49451: Platt scaling on a frozen base model, fitted on the calibration split (`logistic.py` `PlattCalibrator`, `calibrate_frozen`; `modeling.py` `fit_calibrated`). Tested through `tests/test_model_config.py` and `tests/test_monitoring.py`. Brier score is a promotion gate (`gates.py` on phases-2-4 branch, not main). |
+| K05 | Alarm threshold and six-hour cooldown | In review | - | 2026-11-16 | Verified on main cb49451: threshold tuned to the false-alert budget on validation, with a 6-hour cooldown (`policy.py` `tune_threshold`, `apply_policy`, `alert_events`). Tests: `tests/test_invariants.py` (cooldown uses hours and resets per patient), `tests/test_utility_weights.py`. Selection rule with one-standard-error and bootstrap intervals is in `policy.py` on main via PR #77. |
+| K06 | Fairness checks | In review | - | 2026-11-16 | Verified on main cb49451: subgroup utility gaps by recorded sex and age band (`monitoring.py` `subgroup_rows`, `subgroup_gap`; `hospital_comparison.py`), tested in `tests/test_monitoring.py`. Age bands in code are <45, 45-64, 65-79, 80+; the tracker's earlier bands (<50, 50-64, 65-79, 80+) are superseded. No fairness report is recorded yet. |
+| K07 | Prepare slides 3, 8, 11, 12 | In progress | - | 2026-11-13 | Preparing empirical evidence, model selection rationale, and cross-hospital generalization drop for slides 3, 8, 11, and 12. |
 
 ### Person 4 - Josh
 
 | ID | Task | Status | Due date | Updated | Evidence / notes |
 |---|---|---|---|---|---|
-| H01 | HMM forward-pass states | Not started | - | - | - |
-| H02 | Signature features | Not started | - | - | - |
-| H03 | With / without tests | Not started | - | - | - |
+| H01 | HMM forward-pass states | Done | - | 2026-11-12 | PR #60: `hmm.py` (forward filter, Baum-Welch, 15 tests); `scripts/fit_hmm.py` fits 3 states on train (25 iterations, 52 s). |
+| H02 | Signature features | Done | - | 2026-11-13 | PR #63: `signature.py`, depth-2 log-signature over a trailing 6 h window (15 columns), 9 tests. |
+| H03 | With / without tests | Done | - | 2026-11-14 | PR #71: `scripts/h03_ablation.py`, arms A-D from [docs/h03-ablation-plan.md](docs/h03-ablation-plan.md). Full run on validation (3,051 stays): AUPRC A 0.0970, B 0.0976, C 0.0970, D 0.0976; every 95% paired-bootstrap interval vs A includes zero, so neither HMM nor signature helps the logistic regression. Same arms with K02/K03 (`--model`): gradient boosting no gain; random forest + HMM +0.012 AUPRC (95% CI 0.003 to 0.024), the only one of 9 intervals above zero. Extra feature time per 1,000 stays: HMM 0.5 s, signature 1.1 s. |
 | H04 | Optional: GMM | Not started | - | - | - |
-| H05 | Optional: GRU | Not started | - | - | - |
-| H06 | Prepare slide 14 | Not started | - | - | - |
+| H05 | Optional: GRU | Deferred | - | - | Deep learning is outside the course rules. |
+| H06 | Prepare slide 14 | Done | - | 2026-11-14 | `slides/latent.html`: HMM states, forward-only diagram, signature example, H03 results and cost. `.pptx` not rebuilt. |
 
 ### Person 5 - leo
 
 | ID | Task | Status | Due date | Updated | Evidence / notes |
 |---|---|---|---|---|---|
 | L01 | MLflow tracking and registry | In review | - | 2026-11-14 | Local SQLite store (`sqlite:///artifacts/mlflow.db`; MLflow 3 refuses the old `file:` store). Selection runs: parent with fingerprints and the selected model's validation metrics, one nested run per candidate with validation metrics, settings, fit time and training-loss curve; no held-out test metrics are logged. Registry (`registry.py`): `train --register-model` registers the bundle as `@candidate` with its SHA-256 and data/split/feature hashes; `promote --reviewed-by` moves `@production` and records the previous version; `serve --model-uri models:/sepsis-warning@production` checks the hash before loading. `tests/test_registry.py` runs against real MLflow (CI installs the tracking extra). See `docs/mlflow.md`. |
-| L02 | FastAPI service | Not started | - | - | - |
+| L02 | FastAPI service | In review | - | 2026-11-14 | `serve` command: `GET /health`, `GET /model` (selected model and validation-only candidate comparison, registry version), `POST /score`, `POST /predict` (up to 64 stays, latest-hour risk and alert); stateless full-history requests, 422 invalid input, 409 model mismatch, localhost-only by default, no auth ([service.py](src/sepsis_warning/service.py), [api.py](src/sepsis_warning/api.py)). Tests: replay parity, prefix scoring, concurrent isolation, error cases (`tests/test_service.py`, `tests/test_api.py`). Synthetic models only. FastAPI as optional `serve` extra needs team OK. |
 | L03 | Docker image | In review | - | 2026-11-13 | `Dockerfile` (non-root uid 10001, pinned `requirements.txt`, model mounted read-only, allowlist `.dockerignore`, health check). `scripts/docker_smoke_test.sh` passes: non-root, no data/model files in the image, synthetic demo model, `/health`, `/score`, 422 on a label in the input. CI job `docker-image` runs it. See `docs/serving.md`. |
 | L04 | CI/CD with GitHub Actions | Done | - | 2026-11-13 | [.github/workflows/tests.yml](.github/workflows/tests.yml): read-only permissions, no secrets, refuses committed data/model files, runs unit tests, the causal-feature script and the synthetic demo. No deployment. Green on main `5a0a5ea` (fork run #7, identical commit) and on `47896ad` (run #6). |
 | L05 | Latency tests | In review | - | 2026-11-13 | `scripts/latency.py` (standard library): p50/p95/p99, throughput and failures per stay length and concurrency, synthetic stays. Docker image, 2 CPUs: p50 41 ms / p95 67 ms / p99 116 ms for a 24 h stay, 49/75/121 ms for 336 h, one client; requests queue under concurrency (about 15-20 req/s, single worker by design). No numeric target agreed yet. `docs/serving.md`. |
-| L06 | AWS deployment design | In progress | - | 2026-11-13 | CloudFormation in `infra/cloudformation/`, static validation only (cfn-lint clean), no AWS deployment. Load balancer is now internal in private subnets by default, matching the deck's private design; `internet-facing` remains for a synthetic-only demo. README table lists what is aligned and what is not built (VPN, private API Gateway with OAuth2, SageMaker, EventBridge, Secrets Manager, CloudTrail). |
+| L06 | AWS deployment design | In progress | - | 2026-11-16 | Verified on main cb49451: `serverless.yaml`, `mlops.yaml`, `artifacts.yaml`, `service.yaml`, `monitoring.yaml`, `root.yaml`, `network.yaml` (cfn-lint clean in CI). Not on main, only on branch `leo/phases-2-4`: canary releases, `pipeline.yaml` (training pipeline with approval), `observability.yaml` (prediction log and drift job), `apigw.yaml` (private API). Not deployed to any AWS account. |
 | L07 | Prepare slides 16, 17, 18 | Not started | - | - | - |
 
 ### Person 6 - Mashie
@@ -91,8 +91,8 @@ Slide numbers follow the 22-slide deck in `docs/presentation/` (see its README f
 | M01 | Hospital B replay | In progress | - | 2026-11-16 | Code and tests are on this branch: `cross_source.py` (A validation against B, with patient-level bootstrap over whole stays, 200 draws, and timing limitations), wired into `monitor-replay --split external_test` (`monitoring.py`). `monitor-replay` now refuses test splits without `--after-freeze` (the flag existed only on `ward`), tested in `tests/test_hospital_b_replay.py` (9 tests). Verified on synthetic data only. The real hospital B replay has NOT been run: it needs the team's freeze decision on K03-K05 first. Report section: monitoring-plan.md 8a. |
 | M02 | Drift monitoring at two speeds | In review | - | 2026-11-16 | `monitor-setup` / `monitor-replay` ([monitoring.py](src/sepsis_warning/monitoring.py)); plan, owners, floors and runbook in [docs/monitoring-plan.md](docs/monitoring-plan.md). Reference built from A train and validation only; the replay refuses test splits before freeze. 18 tests in `tests/test_monitoring.py` (simulated shifts, no-shift, settled labels) pass on this branch. Still open: team review of owners and floors, and the real-data reference after the freeze. |
 | M03 | SHAP explanations | Not started | - | - | - |
-| M04 | Model card | Not started | - | - | - |
-| M05 | Risk register | Done | - | 2026-11-10 | [docs/risk-register.md](docs/risk-register.md): 25 risks with likelihood, impact, owner, evidence and remaining exposure; unresolved risks left open. Merged in PR #52, approved by Leo. Owners still confirm their own rows (e.g. R05 once E03 merges). |
+| M04 | Model card | In progress | - | 2026-11-16 | Verified on main cb49451: `model_card.py` builds the selection card served by `GET /model` (selected model, rule, validation candidates). No written model card document (intended use, limits, data, metrics) exists yet. |
+| M05 | Risk register | In review | - | 2026-11-08 | [docs/risk-register.md](docs/risk-register.md): 25 risks with likelihood/impact, owner, evidence and remaining exposure; unresolved items left open. To do: each owner confirms their rows. |
 | M06 | Final deck assembly | Not started | - | - | - |
 | M07 | Prepare slides 13, 15, 19, 20 | Not started | - | - | - |
 

@@ -192,7 +192,8 @@ def run_experiment(args):
     selected, selection = select_candidate(comparisons, complexity_ranks(model_config))
     # The rule every model must beat, on the same validation stays and under the same alert
     # budget (its criteria-count threshold is tuned the same way). A promotion gate reads this.
-    sirs = tune_threshold(baseline_table(splits["validation"], "sirs"), args.budget, args.cooldown)
+    sirs_table = baseline_table(splits["validation"], "sirs")
+    sirs = tune_threshold(sirs_table, args.budget, args.cooldown)
     sirs["brier_score"] = None  # the SIRS score is not a probability
     name, threshold = selected["model"], selected["threshold"]
     pd.DataFrame(comparisons).to_csv(args.output / "validation_models.csv", index=False)
@@ -247,6 +248,16 @@ def run_experiment(args):
     }
     joblib.dump(bundle, args.output / "model.joblib")
     write_manifest(args.output, manifest, file_sha256(args.output / "model.joblib"))
+    # Every candidate's validation scores, plus the SIRS score, so `model-report` can compare all models
+    # and the baseline (precision, recall, F1, PR curves) without refitting. Validation stays only.
+    # Patient-level, so it stays in the run folder (git-ignored) and is never logged to MLflow.
+    all_scores = validation_scores[name][META].copy()
+    for candidate, table in validation_scores.items():
+        all_scores[f"p_{candidate}"] = table["probability"].to_numpy()
+    all_scores = all_scores.merge(
+        sirs_table[["patient_id", "hour", "probability"]].rename(columns={"probability": "sirs_score"}),
+        on=["patient_id", "hour"], how="left", validate="one_to_one")
+    all_scores.to_csv(args.output / "validation_scores.csv", index=False)
     # Replay of validation stays only: these were already used for selection.
     replay = apply_policy(validation_scores[name], threshold, args.cooldown)
     replay["split"] = "validation"
@@ -273,6 +284,36 @@ def run_experiment(args):
             version = register_bundle(args.output, args.mlflow_uri, run_id)
             print(f"Registered {MODEL_NAME} version {version} as @candidate "
                   f"(models:/{MODEL_NAME}@candidate). Promote only after review.", flush=True)
+
+
+def run_tune(args):
+    """Hyperparameter search on the training split only; writes tuned settings for `train --models-config`."""
+    from . import tuning
+
+    if args.output.exists() and any(args.output.iterdir()):
+        raise ValueError(f"{args.output} is not empty; use a new output directory")
+    cohorts, synthetic = load_cohorts(args)
+    models_config, models_sha = load_model_config(args.models_config)
+    space, space_sha = tuning.load_space(args.space_config)
+    results, summary, tuned = tuning.run_search(
+        cohorts["train"], models_config=models_config, space=space, window=args.window, folds=args.folds,
+        trials=args.trials, seed=args.seed, max_stays=args.max_stays, only=args.models,
+        progress=lambda message: print(message, flush=True),
+    )
+    data_note = "synthetic_fixture" if synthetic else "physionet"
+    tuning.write_outputs(args.output, results, summary, tuned, models_config_sha256=models_sha,
+                         space_sha256=space_sha, data_note=data_note)
+    print("\nBest configuration per model (cross-validated average precision, training split only):")
+    for name, best in summary["models"].items():
+        marker = "kept the reference settings" if best["winner_is_reference"] else f"gain {best['ap_gain_over_reference']:+.4f}"
+        print(f"  {name}: AP {best['cv_ap_mean']:.4f} (reference {best['reference_cv_ap_mean']:.4f}; {marker})")
+    print(f"Tuned settings: {(args.output / 'tuned_models.toml').resolve()}")
+    print("Next: python -m sepsis_warning train --models-config "
+          f"{args.output / 'tuned_models.toml'} ...", flush=True)
+    if args.mlflow_uri:
+        from .tracking import log_tuning
+
+        print(f"MLflow tuning run: {log_tuning(args.output, args.mlflow_uri)}", flush=True)
 
 
 BASELINE_SPLITS = ["validation", "internal_test", "external_test"]
@@ -480,6 +521,33 @@ def main():
                              help="Also fit the hand-written NumPy models as candidates (slower)")
         command.add_argument("--skip-data-checks", action="store_true",
                              help="Do not run the schema checks on a Parquet table before training")
+    tune = sub.add_parser(
+        "tune", help="Hyperparameter search with patient-grouped cross-validation on the training split only")
+    tune.add_argument("--data", type=Path, required=True, help=DATA_HELP)
+    tune.add_argument("--splits", type=Path, default=None, help=SPLITS_HELP)
+    tune.add_argument("--output", type=Path, default=Path("artifacts/tuning"))
+    tune.add_argument("--seed", type=int, default=42)
+    tune.add_argument("--window", type=int, default=6)
+    tune.add_argument("--folds", type=int, default=3, help="Patient-grouped cross-validation folds")
+    tune.add_argument("--trials", type=int, default=12,
+                      help="Sampled configurations per model, besides the reference settings")
+    tune.add_argument("--max-stays", type=int, default=None,
+                      help="Search on a seeded random subset of training stays (faster; recorded in the result)")
+    tune.add_argument("--models", nargs="+", default=None, help="Only tune these models (default: all with a space)")
+    tune.add_argument("--models-config", type=Path, default=None, help="Reference settings (default: models.toml)")
+    tune.add_argument("--space-config", type=Path, default=None, help="Search space (default: tuning_space.toml)")
+    tune.add_argument("--mlflow-uri", default=None,
+                      help=f"Log every trial to MLflow, e.g. {DEFAULT_TRACKING_URI} (tracking extra)")
+    report = sub.add_parser(
+        "model-report",
+        help="Metrics table, PR curves and other figures (each with its recreate command) from a finished train run")
+    report.add_argument("--run", type=Path, required=True, help="Folder written by `train` (validation files)")
+    report.add_argument("--output", type=Path, default=Path("reports/results"), help="New, empty folder")
+    report.add_argument("--tuning", type=Path, default=None, help="Folder written by `tune` (adds the search figure)")
+    report.add_argument("--evaluation", type=Path, default=None,
+                        help="Folder written by `evaluate` (adds test-split table and PR curves; reads only)")
+    report.add_argument("--bootstrap", type=int, default=200, help="Stay-grouped bootstrap draws (0 = no intervals)")
+    report.add_argument("--seed", type=int, default=42)
     evaluate = sub.add_parser(
         "evaluate", help="Score the test splits ONCE for a frozen model (never during model development)")
     evaluate.add_argument("--data", type=Path, required=True, help=DATA_HELP)
@@ -677,6 +745,20 @@ def main():
             if result.get("detail"):
                 print(f"  {result['detail']}")
             print(f"Result: {(args.output / 'live_drift.json').resolve()}", flush=True)
+        elif args.command == "tune":
+            if args.mlflow_uri:
+                check_tracking_uri(args.mlflow_uri)
+                require_mlflow()
+            run_tune(args)
+        elif args.command == "model-report":
+            from .model_report import build_report
+
+            manifest = build_report(args.run, args.output, tuning_dir=args.tuning, evaluation_dir=args.evaluation,
+                                    bootstrap=args.bootstrap, seed=args.seed)
+            print(f"Wrote {len(manifest['figures'])} figures and the metrics table to {args.output.resolve()}")
+            for item in manifest["skipped"]:
+                print(f"  skipped {item['title']}: {item['reason']}")
+            print(f"Open {(args.output / 'FIGURES.md').resolve()}", flush=True)
         elif args.command == "evaluate":
             from .evaluation import run_frozen_evaluation
 

@@ -1,94 +1,153 @@
-# Deploys to AWS: build once, then dev -> staging -> prod, each from the same image digest.
-# Started by hand only. It does nothing until the repository has the variable
-# AWS_DEPLOY_ROLE_ARN (per environment) and the matching IAM role trusts GitHub's OIDC
-# provider; there are no long-lived AWS keys. "staging" and "prod" should be GitHub
-# environments with required reviewers, which is the approval step.
-# Changes to this file need owner review.
+# Deploys to AWS from GitHub Actions: pick the environment and the region when you start it.
+# Started by hand only (Actions -> deploy -> Run workflow).
+#
+# Works in any AWS account with no edits here. The AWS account of each GitHub environment
+# (dev, staging, prod) is set once by scripts/bootstrap_github_oidc.sh, which sets:
+#   AWS_ACCOUNT_ID        the account that GitHub environment deploys into
+#   AWS_REGION            the default region, used when you pick "environment default"
+#   AWS_DEPLOY_ROLE_ARN   the role created by the bootstrap in that default region
+# Run the bootstrap once for each region you want to deploy to. The role it creates is named
+# github-deploy-<environment>-<region>, so this workflow finds the right role for the region
+# you choose from AWS_ACCOUNT_ID alone. Regions offered: ap-southeast-1 (Singapore) and
+# ap-southeast-2 (Sydney).
+# Optional variables: BUDGET_EMAIL (needed when infra/params/<env>.json sets a monthly budget), ALERT_EMAIL.
+# No long-lived AWS keys are used: GitHub's OIDC token is exchanged for a short-lived role.
+# "staging" and "prod" should be GitHub environments with required reviewers, which is the
+# approval step. Changes to this file need owner review.
 name: deploy
 
 on:
   workflow_dispatch:
     inputs:
-      model_uri:
-        description: Registered model to deploy (must already be promoted and published)
-        default: models:/sepsis-warning@production
-      environments:
-        description: How far to go
+      environment:
+        description: Environment to deploy (staging and prod wait for their reviewers)
         type: choice
-        options: [dev, dev+staging, dev+staging+prod]
+        options: [dev, staging, prod]
         default: dev
+      region:
+        description: AWS region (the bootstrap must have been run for it in that account)
+        type: choice
+        options: [environment default, ap-southeast-1, ap-southeast-2]
+        default: environment default
+      steps:
+        description: First deploy in an account has no model yet, so start with "stack and images only"
+        type: choice
+        options: [stack and images only, full deploy]
+        default: stack and images only
+      model_uri:
+        description: Registered model to deploy (full deploy only; must already be promoted in that account's MLflow App)
+        default: models:/sepsis-warning@production
 
 permissions:
   contents: read
   id-token: write   # OIDC token for AWS; no stored credentials
 
 concurrency:
-  group: deploy
+  group: deploy-${{ inputs.environment }}-${{ inputs.region }}
   cancel-in-progress: false
-
-env:
-  AWS_REGION: ap-southeast-1
 
 jobs:
   deploy:
-    strategy:
-      max-parallel: 1          # one environment at a time, in order
-      fail-fast: true          # a failed smoke test stops the promotion
-      matrix:
-        environment: [dev, staging, prod]
-    if: vars.AWS_DEPLOY_ROLE_ARN != ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    environment: ${{ matrix.environment }}
+    environment: ${{ inputs.environment }}
     steps:
-      - name: Skip environments that were not requested
-        id: wanted
+      - name: Resolve the region and the deploy role
+        id: target
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          REGION_INPUT: ${{ inputs.region }}
+          DEFAULT_REGION: ${{ vars.AWS_REGION }}
+          ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          ROLE_ARN_VAR: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
         run: |
-          case "${{ inputs.environments }}:${{ matrix.environment }}" in
-            dev:dev|dev+staging:dev|dev+staging:staging|dev+staging+prod:*) echo "run=true" >> "$GITHUB_OUTPUT" ;;
-            *) echo "run=false" >> "$GITHUB_OUTPUT" ;;
+          region="$REGION_INPUT"
+          [ "$region" != "environment default" ] || region="$DEFAULT_REGION"
+          case "$region" in
+            ap-southeast-1|ap-southeast-2) ;;
+            *) echo "Region '$region' is not supported. Pick ap-southeast-1 or ap-southeast-2, or set AWS_REGION for the '$ENVIRONMENT' environment." >&2; exit 1 ;;
           esac
+          if [ -n "$ROLE_ARN_VAR" ]; then
+            role="$ROLE_ARN_VAR"
+          elif [ -n "$ACCOUNT_ID" ]; then
+            role="arn:aws:iam::${ACCOUNT_ID}:role/github-deploy-${ENVIRONMENT}-${region}"
+          else
+            echo "The '$ENVIRONMENT' environment has neither AWS_ACCOUNT_ID nor AWS_DEPLOY_ROLE_ARN." >&2
+            echo "Run scripts/bootstrap_github_oidc.sh for this account, or set them in GitHub settings." >&2
+            exit 1
+          fi
+          echo "region=$region" >> "$GITHUB_OUTPUT"
+          echo "role=$role" >> "$GITHUB_OUTPUT"
+          echo "Deploying '$ENVIRONMENT' to $region" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        if: steps.wanted.outputs.run == 'true'
         with:
           persist-credentials: false
 
-      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+      # The role's trust policy must match this subject exactly (see infra/cloudformation/github-oidc.yaml).
+      # Because the job sets `environment:`, it is never repo:...:ref:refs/heads/main.
+      - name: Show the OIDC subject AWS will check
         if: steps.wanted.outputs.run == 'true'
+        # Prints only the decoded claims AWS matches on, never the token itself.
+        run: |
+          echo "expected sub: repo:${GITHUB_REPOSITORY}:environment:${{ matrix.environment }}"
+          echo "role:         ${{ vars.AWS_DEPLOY_ROLE_ARN }}"
+          curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | python3 -c '
+          import base64, json, sys
+          part = json.load(sys.stdin)["value"].split(".")[1]
+          claims = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+          keys = ("sub", "aud", "iss", "repository", "environment", "ref", "job_workflow_ref")
+          print(json.dumps({k: claims.get(k) for k in keys}, indent=2))' || true
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ steps.target.outputs.role }}
+          aws-region: ${{ steps.target.outputs.region }}
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        if: steps.wanted.outputs.run == 'true'
         with:
           python-version: "3.12"
 
       - name: Install the deploy tools (locked)
-        if: steps.wanted.outputs.run == 'true'
         run: |
           python -m pip install --require-hashes -r requirements/ci.txt
           python -m pip install --no-deps -e .
           python -m pip install "sagemaker-mlflow>=0.5,<1"
 
-      - name: Stack, images, publish, deploy
-        if: steps.wanted.outputs.run == 'true'
+      - name: Stack and images
         env:
-          ENVIRONMENT: ${{ matrix.environment }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          # Prod changes need this confirmation; the environment's required reviewers are the approval.
+          CONFIRM_PROD: ${{ inputs.environment == 'prod' && 'yes' || '' }}
+          AWS_REGION: ${{ steps.target.outputs.region }}
+          BUDGET_EMAIL: ${{ vars.BUDGET_EMAIL }}
+          ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
           MODEL_URI: ${{ inputs.model_uri }}
           TAG: ${{ github.sha }}
         run: |
           bash scripts/aws_deploy.sh stack
           bash scripts/aws_deploy.sh images
+
+      - name: Publish the promoted model and serve it
+        if: inputs.steps == 'full deploy'
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          CONFIRM_PROD: ${{ inputs.environment == 'prod' && 'yes' || '' }}
+          AWS_REGION: ${{ steps.target.outputs.region }}
+          BUDGET_EMAIL: ${{ vars.BUDGET_EMAIL }}
+          ALERT_EMAIL: ${{ vars.ALERT_EMAIL }}
+          MODEL_URI: ${{ inputs.model_uri }}
+          TAG: ${{ github.sha }}
+        run: |
           bash scripts/aws_deploy.sh publish
           bash scripts/aws_deploy.sh serve
 
       # The canary inside the stack update already rolled back on errors; this checks the result.
       - name: Smoke test the deployed API
-        if: steps.wanted.outputs.run == 'true'
+        if: inputs.steps == 'full deploy'
         env:
-          ENVIRONMENT: ${{ matrix.environment }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          AWS_REGION: ${{ steps.target.outputs.region }}
         run: |
           bash scripts/aws_deploy.sh call GET /health
           bash scripts/aws_deploy.sh call POST /predict \

@@ -41,7 +41,7 @@ sepsis-warning = "sepsis_warning.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sepsis_warning = ["report_template.html", "ward_template.html", "models.toml"]
+sepsis_warning = ["report_template.html", "ward_template.html", "models.toml", "tuning_space.toml"]
 
 [tool.ruff]
 line-length = 140

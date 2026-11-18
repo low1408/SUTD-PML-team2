@@ -92,12 +92,35 @@ are linted and unit-tested but **not yet run in an AWS account**.
 | Safe releases | `serverless.yaml` (SAM) | Each change publishes a Lambda version behind the `live` alias and shifts traffic as a canary (`DeploymentType`); error or latency alarms roll it back |
 | Alert ledger | `alert_store.py`, DynamoDB table | Delivered alerts are recorded, so a model change cannot re-alert inside the cooldown |
 | Environments | `infra/params/{dev,staging,prod}.json` | `ENVIRONMENT=dev bash scripts/aws_deploy.sh stack`; one AWS account each; prod needs `CONFIRM_PROD=yes` or the workflow's reviewers |
-| Deploy workflow | `.github/workflows/deploy.yml` | Manual start, GitHub OIDC (no stored keys), dev → staging → prod with a smoke test after each. Inactive until `AWS_DEPLOY_ROLE_ARN` is set |
+| Deploy workflow | `.github/workflows/deploy.yml` | Manual start: choose the environment (dev, staging, prod) and the region (Singapore or Sydney). GitHub OIDC (no stored keys), a smoke test after the deploy. Inactive until the bootstrap has set `AWS_ACCOUNT_ID` for the environment |
 | Telemetry | `telemetry.py` | Request metrics in the `SepsisWarning/Scoring` namespace and prediction lines with hashed stay IDs and no measurement values |
 | Prediction log and drift | `observability.yaml`, `live_drift.py` | Prediction lines go to S3 through a log subscription and Firehose; a daily Lambda runs the label-free checks; the `<env>-drift` alarm emails the owners. `aws_deploy.sh reference <file>` switches it on |
 | Retraining trigger | `observability.yaml` | With `RetrainImageTag`, a drift alarm starts the pipeline, which still stops at the approver |
 | Private entry | `apigw.yaml` | With `PrivateApiVpcEndpointId`: private API Gateway (one VPC endpoint only), IAM auth, throttling, WAF rate limit |
 | Runbooks | [runbooks/](runbooks/README.md) | Rollback, scoring errors, drift alarm, proposed service objectives |
+
+### Deploy workflow setup (one time per account and environment)
+
+The workflow signs in to AWS with GitHub's OIDC token, and the IAM role must
+trust the exact token subject. Because the job runs in a GitHub environment, the
+subject is `repo:<owner>/<name>:environment:<env>` (for example
+`repo:leothelucifer/SUTD-PML-team2:environment:dev`), not `...:ref:refs/heads/main`.
+A role made with the console wizard usually trusts the branch form or a different
+repository (a fork has its own owner), and the run fails with
+`Not authorized to perform sts:AssumeRoleWithWebIdentity`.
+
+With admin credentials for the target account:
+
+```bash
+ENVIRONMENT=dev bash scripts/aws_deploy.sh github-oidc <owner>/<name>
+```
+
+This deploys `infra/cloudformation/github-oidc.yaml` (the OIDC provider if the
+account has none, and the role `github-deploy-<env>`) and prints the role ARN.
+In GitHub, under Settings → Environments → `<env>`, set the variable
+`AWS_DEPLOY_ROLE_ARN` to it. Repeat per environment. The workflow's
+"Show the OIDC subject" step prints the subject it sends, to compare with the
+role's trust policy.
 
 Extra cost of these: Firehose and the drift Lambda are pennies at this volume;
 Step Functions bills per state transition (a few per run); the private API
@@ -150,7 +173,7 @@ hand when the project ends.
 | Assumption | What the docs say | Result |
 |---|---|---|
 | `AWS::SageMaker::MlflowApp` properties | `ArtifactStoreUri`, `Name`, `RoleArn` required; `ModelRegistrationMode`, `Tags`, `WeeklyMaintenanceWindowStart` (`Sun:18:00` pattern) optional; `Fn::GetAtt Arn` | Template matches |
-| MLflow Apps in Singapore | Asia Pacific (Singapore) is on the MLflow Apps region list; the artifact bucket must be in the same region | OK |
+| MLflow Apps in Singapore and Sydney | Asia Pacific (Singapore) and Asia Pacific (Sydney) are both on the MLflow Apps region list; the artifact bucket must be in the same region | OK; both regions are supported, set `AWS_REGION` to `ap-southeast-1` or `ap-southeast-2` |
 | MLflow version | Apps run MLflow 3.16 (Python 3.10+) and update themselves | Training image pins `mlflow==3.16.1` (build arg `MLFLOW_VERSION`) |
 | App role | Trust `sagemaker.amazonaws.com`; permissions `s3:Get*`, `s3:Put*`, `s3:List*` (+ Model Registry actions only for automatic registration) | Role now matches, scoped to the bucket and `mlflow/` |
 | Client permission | The data-plane action for MLflow Apps is `sagemaker:CallMlflowAppApi` | Training role and the trainer, approver and deployer policies grant it |

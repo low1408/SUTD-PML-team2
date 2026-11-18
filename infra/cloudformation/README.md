@@ -22,8 +22,8 @@ In Fargate mode `LoadBalancerScheme=internet-facing` switches to a public load
 balancer for a synthetic-only demo, and the API has no authentication. In
 Lambda mode every request must be SigV4-signed. Never send patient, personal or
 other sensitive data to either until access and data handling are approved.
-The design targets `ap-southeast-1` (Singapore); the templates use the region
-selected for the stack and do not enforce it.
+Both `ap-southeast-1` (Singapore) and `ap-southeast-2` (Sydney) are supported and
+linted in CI; the templates use the region selected for the stack and do not enforce it.
 
 ## Deck design vs these templates
 
@@ -72,7 +72,7 @@ Run the static template linter from the repository root:
 
 ```bash
 pip install "cfn-lint[sam]"
-cfn-lint -t infra/cloudformation/*.yaml --regions ap-southeast-1 --ignore-checks W3002
+cfn-lint -t infra/cloudformation/*.yaml --regions ap-southeast-1 ap-southeast-2 --ignore-checks W3002
 ```
 
 `W3002` is suppressed because the root template intentionally uses local

@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  One-time setup of an AWS account for GitHub Actions deployments: an OIDC identity
+  provider and one deploy role per GitHub environment (dev, staging, prod). No long-lived
+  access keys are created. Run it with scripts/bootstrap_github_oidc.sh.
+
+Parameters:
+  GitHubRepository:
+    Type: String
+    AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    Description: owner/name of the repository allowed to deploy, for example leothelucifer/SUTD-PML-team2.
+  CreateOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Set to false if the account already has the GitHub OIDC provider.
+  DeployPolicyArn:
+    Type: String
+    Default: arn:aws:iam::aws:policy/AdministratorAccess
+    Description: >-
+      Managed policy the deploy roles get. The default is broad because the first deployment
+      creates IAM roles. After the first successful deploy, replace it with a narrower policy
+      (see docs/deploy-to-any-account.md).
+
+Conditions:
+  NeedsProvider: !Equals [!Ref CreateOidcProvider, "true"]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: NeedsProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+  DevDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "github-deploy-dev-${AWS::Region}"
+      Description: Assumed only by jobs in the GitHub "dev" environment.
+      MaxSessionDuration: 3600
+      ManagedPolicyArns: [!Ref DeployPolicyArn]
+      AssumeRolePolicyDocument: !Sub
+        - |
+          {"Version": "2012-10-17", "Statement": [{"Effect": "Allow",
+            "Principal": {"Federated": "${ProviderArn}"},
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {"StringEquals": {
+              "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+              "token.actions.githubusercontent.com:sub": "repo:${GitHubRepository}:environment:dev"}}}]}
+        - ProviderArn: !If
+            - NeedsProvider
+            - !Ref GitHubOidcProvider
+            - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+
+  StagingDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "github-deploy-staging-${AWS::Region}"
+      Description: Assumed only by jobs in the GitHub "staging" environment.
+      MaxSessionDuration: 3600
+      ManagedPolicyArns: [!Ref DeployPolicyArn]
+      AssumeRolePolicyDocument: !Sub
+        - |
+          {"Version": "2012-10-17", "Statement": [{"Effect": "Allow",
+            "Principal": {"Federated": "${ProviderArn}"},
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {"StringEquals": {
+              "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+              "token.actions.githubusercontent.com:sub": "repo:${GitHubRepository}:environment:staging"}}}]}
+        - ProviderArn: !If
+            - NeedsProvider
+            - !Ref GitHubOidcProvider
+            - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+
+  ProdDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "github-deploy-prod-${AWS::Region}"
+      Description: Assumed only by jobs in the GitHub "prod" environment, which should have required reviewers.
+      MaxSessionDuration: 3600
+      ManagedPolicyArns: [!Ref DeployPolicyArn]
+      AssumeRolePolicyDocument: !Sub
+        - |
+          {"Version": "2012-10-17", "Statement": [{"Effect": "Allow",
+            "Principal": {"Federated": "${ProviderArn}"},
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {"StringEquals": {
+              "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+              "token.actions.githubusercontent.com:sub": "repo:${GitHubRepository}:environment:prod"}}}]}
+        - ProviderArn: !If
+            - NeedsProvider
+            - !Ref GitHubOidcProvider
+            - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+
+Outputs:
+  DevRoleArn:
+    Value: !GetAtt DevDeployRole.Arn
+  StagingRoleArn:
+    Value: !GetAtt StagingDeployRole.Arn
+  ProdRoleArn:
+    Value: !GetAtt ProdDeployRole.Arn
