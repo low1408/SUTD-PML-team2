@@ -92,7 +92,7 @@ Slide numbers follow the 22-slide deck in `docs/presentation/` (see its README f
 | M02 | Drift monitoring at two speeds | In review | - | 2026-11-16 | `monitor-setup` / `monitor-replay` ([monitoring.py](src/sepsis_warning/monitoring.py)); plan, owners, floors and runbook in [docs/monitoring-plan.md](docs/monitoring-plan.md). Reference built from A train and validation only; the replay refuses test splits before freeze. 18 tests in `tests/test_monitoring.py` (simulated shifts, no-shift, settled labels) pass on this branch. Still open: team review of owners and floors, and the real-data reference after the freeze. |
 | M03 | SHAP explanations | Not started | - | - | - |
 | M04 | Model card | Not started | - | - | - |
-| M05 | Risk register | In review | - | 2026-11-08 | [docs/risk-register.md](docs/risk-register.md): 25 risks with likelihood/impact, owner, evidence and remaining exposure; unresolved items left open. To do: each owner confirms their rows. |
+| M05 | Risk register | In review | - | 2026-11-19 | [docs/risk-register.md](docs/risk-register.md): 28 risks with likelihood/impact, owner, evidence and remaining exposure; unresolved items left open. Second review against main `ee6ca9f`: six risks lowered, R21 (cloud cost) raised, R26-R28 added (drift alarm can start retraining; contribution records disagree; the written report has no owner). To do: each owner confirms their rows. |
 | M06 | Final deck assembly | Not started | - | - | - |
 | M07 | Prepare slides 13, 15, 19, 20 | Not started | - | - | - |
 
