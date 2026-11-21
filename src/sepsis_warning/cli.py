@@ -40,7 +40,7 @@ from .monitoring import (
     replay_monitoring,
     setup_monitoring,
 )
-from .policy import apply_policy, select_candidate, summarize, tune_threshold
+from .policy import apply_policy, calibration_diagnostics, select_candidate, summarize, tune_threshold
 from .prepare import prepare_parquet, write_summary
 from .report import write_report
 from .schema import extreme_value_counts, validate_hourly
@@ -175,6 +175,7 @@ def run_experiment(args):
     comparisons = []
     fitted = {}
     details = {}
+    calibration_curves = {}
     validation_scores = {}
     candidates = candidate_models(args.seed, model_config, getattr(args, "include_numpy_models", False))
     for name, estimator in candidates.items():
@@ -183,9 +184,13 @@ def run_experiment(args):
         with threadpool_limits(limits=2):
             model = fit_calibrated(estimator, tables["train"], tables["calibration"], columns, is_constant=name == "constant_prior")
             validation = tables["validation"][META].copy()
+            uncalibrated_prob = estimator.predict_proba(tables["validation"][columns])[:, 1]
             validation["probability"] = model.predict_proba(tables["validation"][columns])[:, 1]
         details[name] = candidate_details(estimator, time.perf_counter() - started)
+        cal_diag = calibration_diagnostics(validation["label"], uncalibrated_prob, validation["probability"])
+        calibration_curves[name] = cal_diag
         metrics = tune_threshold(validation, args.budget, args.cooldown)
+        metrics["uncalibrated_brier_score"] = cal_diag["brier_before"]
         comparisons.append({"model": name, **metrics})
         fitted[name] = model
         validation_scores[name] = validation
@@ -197,11 +202,13 @@ def run_experiment(args):
     name, threshold = selected["model"], selected["threshold"]
     pd.DataFrame(comparisons).to_csv(args.output / "validation_models.csv", index=False)
     write_json(args.output / "candidate_details.json", details)
+    write_json(args.output / "calibration.json", calibration_curves)
     summary = {
         "data_mode": "synthetic_fixture" if synthetic else "physionet",
         "selected_model": name, "threshold": threshold,
         "validation_alarm_budget": args.budget, "cooldown_hours": args.cooldown,
         "selection": selection, "validation_models": comparisons,
+        "calibration": calibration_curves,
         "reference_baselines": {"sirs": sirs},
     }
     config = {

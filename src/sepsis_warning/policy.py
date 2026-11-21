@@ -275,3 +275,65 @@ def tune_threshold(table, budget=0.2, cooldown=6):
     # The interval is for the chosen threshold only; it does not include threshold-tuning noise.
     chosen.update(utility_interval(apply_policy(table, chosen["threshold"], cooldown)))
     return chosen
+
+
+def calibration_curve_bins(labels, probability, n_bins: int = 10) -> tuple[list[dict], float | None]:
+    """Compute uniform-width reliability curve bins over [0, 1] and ECE."""
+    if n_bins < 1:
+        raise ValueError("n_bins must be at least 1")
+    y = np.asarray(labels, dtype=np.float64)
+    p = np.asarray(probability, dtype=np.float64)
+    if len(y) != len(p):
+        raise ValueError("labels and probability must have the same length")
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    bins = []
+    ece = 0.0
+    total = len(y)
+    for idx in range(n_bins):
+        low, high = float(edges[idx]), float(edges[idx + 1])
+        # Include 1.0 in the final bin so edge probabilities are never dropped.
+        mask = (p >= low) & (p <= high if idx == n_bins - 1 else p < high)
+        count = int(mask.sum())
+        if count > 0:
+            positives = int(y[mask].sum())
+            mean_pred = float(p[mask].mean())
+            obs_freq = float(y[mask].mean())
+            ece += (count / total) * abs(obs_freq - mean_pred)
+        else:
+            positives = 0
+            mean_pred = None
+            obs_freq = None
+        bins.append({
+            "bin_index": idx,
+            "bin_lower": low,
+            "bin_upper": high,
+            "count": count,
+            "positive_count": positives,
+            "mean_predicted": mean_pred,
+            "observed_frequency": obs_freq,
+        })
+    return bins, (float(ece) if total > 0 else None)
+
+
+def calibration_diagnostics(labels, uncalibrated_probability, calibrated_probability, n_bins: int = 10) -> dict:
+    """Record before/after Platt scaling Brier scores, ECE, and binned calibration curves."""
+    y = np.asarray(labels, dtype=np.float64)
+    p_before = np.asarray(uncalibrated_probability, dtype=np.float64)
+    p_after = np.asarray(calibrated_probability, dtype=np.float64)
+    brier_before = float(brier_score_loss(y, p_before))
+    brier_after = float(brier_score_loss(y, p_after))
+    bins_before, ece_before = calibration_curve_bins(y, p_before, n_bins=n_bins)
+    bins_after, ece_after = calibration_curve_bins(y, p_after, n_bins=n_bins)
+    return {
+        "n_samples": int(len(y)),
+        "n_positives": int(y.sum()),
+        "bin_strategy": "uniform",
+        "n_bins": int(n_bins),
+        "brier_before": brier_before,
+        "brier_after": brier_after,
+        "brier_delta": float(brier_after - brier_before),
+        "ece_before": ece_before,
+        "ece_after": ece_after,
+        "bins_before": bins_before,
+        "bins_after": bins_after,
+    }
