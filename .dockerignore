@@ -3,6 +3,7 @@
 *
 !pyproject.toml
 !requirements.txt
+!requirements/
 !README.md
 !src/sepsis_warning/
 src/sepsis_warning/__pycache__/

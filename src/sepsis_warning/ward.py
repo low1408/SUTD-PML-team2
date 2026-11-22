@@ -23,7 +23,6 @@ Rules kept here:
 """
 
 import json
-import urllib.request
 from dataclasses import replace
 from pathlib import Path
 
@@ -91,14 +90,16 @@ def score_locally(bundle: dict, stays: list[Patient]) -> list[pd.DataFrame]:
     return [scored.loc[scored["patient_id"] == stay.patient_id].reset_index(drop=True) for stay in stays]
 
 
-def _post_json(url: str, body: dict, timeout: float) -> dict:
-    request = urllib.request.Request(url, data=json.dumps(body).encode(),
-                                     headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.load(response)
+def _post_json(url: str, body: dict, timeout: float, sign: bool = False) -> dict:
+    """One scoring call through the resilient client: timeout, retries with backoff, optional SigV4."""
+    from .client import ScoringClient
+
+    base, _, path = url.rpartition("/")
+    return ScoringClient(base, sign=sign, timeout=timeout).request("POST", "/" + path, body)
 
 
-def score_via_api(api_url: str, stays: list[Patient], timeout: float = 30.0) -> tuple[list[pd.DataFrame], dict]:
+def score_via_api(api_url: str, stays: list[Patient], timeout: float = 30.0,
+                  sign: bool = False) -> tuple[list[pd.DataFrame], dict]:
     """Score each stay through ``POST /score``, as the hospital engine would.
 
     Sends only model inputs (no label, no record ID) and returns the same
@@ -109,7 +110,7 @@ def score_via_api(api_url: str, stays: list[Patient], timeout: float = 30.0) -> 
     for index, stay in enumerate(stays, start=1):
         inputs = stay.frame[DYNAMIC + STATIC].astype(object).where(stay.frame[DYNAMIC + STATIC].notna(), None)
         response = _post_json(f"{base}/score", {"patient_id": f"bed-{index:02d}",
-                                                "hours": inputs.to_dict(orient="records")}, timeout)
+                                                "hours": inputs.to_dict(orient="records")}, timeout, sign)
         hours = pd.DataFrame(response["hours"])
         frame = pd.DataFrame({
             "hour": hours["hour"], "probability": hours["probability"],

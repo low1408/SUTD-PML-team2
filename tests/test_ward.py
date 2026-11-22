@@ -81,7 +81,7 @@ class WardReplay(unittest.TestCase):
         stays = self.stays()
         service = ScoringService(self.bundle)
 
-        def fake_post(url, body, timeout):
+        def fake_post(url, body, timeout, sign=False):
             self.assertTrue(url.endswith("/score"))
             self.assertTrue(all("SepsisLabel" not in hour for hour in body["hours"]))
             return service.score(body["patient_id"], body["hours"])

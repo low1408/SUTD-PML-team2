@@ -105,3 +105,14 @@ What this shows:
 No numeric latency target has been agreed, so these are measurements, not a
 pass or fail. Numbers will differ on other hardware and with the final NumPy
 model.
+
+For the full AWS layout on one machine (load balancer, two tasks, private network,
+rolling deploy), see [local-production.md](local-production.md).
+
+On AWS the same API runs on Lambda by default (Dockerfile target `lambda`,
+function URL with IAM authentication, scale to zero) or on Fargate; both load
+the published bundle from S3 and check its SHA-256 (`serve --model-s3 ...
+--model-sha256 ...`). See [aws-serverless.md](aws-serverless.md). In a local
+container test with 1 GB, the Lambda image answered its first request in about
+1.8 s (imports and model load) and warm requests in milliseconds.
+

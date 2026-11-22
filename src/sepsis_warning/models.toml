@@ -1,0 +1,49 @@
+# Candidate models for `train` and `demo`. The SHA-256 of this file is recorded
+# in every run, so a change of settings is visible in the lineage.
+#
+#   kind        which builder in modeling.py makes the estimator
+#   enabled     false = only fitted when asked for (--include-numpy-models)
+#   complexity  lower is simpler; the one-standard-error rule prefers the
+#               simplest model whose validation utility is within one standard
+#               error of the best
+#   params      passed to the estimator; `seed` is added by the code
+
+[constant_prior]
+kind = "sklearn.constant_prior"
+complexity = 0
+
+[logistic_regression]
+kind = "sklearn.logistic_regression"
+complexity = 1
+params = { C = 0.3, class_weight = "balanced", solver = "liblinear", max_iter = 1000 }
+
+[random_forest]
+kind = "sklearn.random_forest"
+complexity = 2
+params = { n_estimators = 80, max_depth = 8, min_samples_leaf = 20, class_weight = "balanced", n_jobs = 2 }
+
+[hist_gradient_boosting]
+kind = "sklearn.hist_gradient_boosting"
+complexity = 3
+# early_stopping stays off: it would hold out rows, not patients.
+params = { learning_rate = 0.06, max_iter = 100, max_leaf_nodes = 15, l2_regularization = 2.0, class_weight = "balanced", early_stopping = false }
+
+# Hand-written NumPy implementations (PR #68). Off by default: they are checked
+# against scikit-learn in tests/test_model_config.py and are slower on the full data.
+[numpy_logistic_regression]
+kind = "numpy.logistic_regression"
+enabled = false
+complexity = 1
+params = { C = 0.3, class_weight = "balanced" }
+
+[numpy_random_forest]
+kind = "numpy.random_forest"
+enabled = false
+complexity = 2
+params = { n_estimators = 80, max_depth = 8, min_samples_leaf = 20 }
+
+[numpy_gradient_boosting]
+kind = "numpy.gradient_boosting"
+enabled = false
+complexity = 3
+params = { learning_rate = 0.06, max_iter = 100, max_leaf_nodes = 15, l2_regularization = 2.0 }

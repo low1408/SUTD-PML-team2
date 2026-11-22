@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Optional network-private entry point for the Lambda scoring service: a private REST API
+  reachable only through one VPC endpoint (for a hospital VPN or Direct Connect), with IAM
+  authentication, request throttling and a WAF rate limit. Use it when the function URL's
+  public network path is not acceptable. The execute-api VPC endpoint itself is created with
+  the network it lives in and bills by the hour.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+  LiveAliasArn:
+    Type: String
+    Description: The scoring function's "live" alias, so canary releases apply here too.
+  VpcEndpointId:
+    Type: String
+    AllowedPattern: "^vpce-[0-9a-f]+$"
+    Description: Interface endpoint for execute-api in the VPC the hospital connects to.
+  ThrottleRatePerSecond:
+    Type: Number
+    Default: 20
+  ThrottleBurst:
+    Type: Number
+    Default: 40
+  WafRequestsPer5Minutes:
+    Type: Number
+    Default: 2000
+    MinValue: 100
+
+Resources:
+  Api:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub "${EnvironmentName}-scoring"
+      Description: Private entry to the sepsis early-warning research scorer.
+      EndpointConfiguration:
+        Types:
+          - PRIVATE
+        VpcEndpointIds:
+          - !Ref VpcEndpointId
+      # Calls are accepted only when they arrive through the named VPC endpoint.
+      Policy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: execute-api:Invoke
+            Resource: execute-api:/*
+          - Effect: Deny
+            Principal: "*"
+            Action: execute-api:Invoke
+            Resource: execute-api:/*
+            Condition:
+              StringNotEquals:
+                "aws:SourceVpce": !Ref VpcEndpointId
+
+  ProxyResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref Api
+      ParentId: !GetAtt Api.RootResourceId
+      PathPart: "{proxy+}"
+
+  ProxyMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref Api
+      ResourceId: !Ref ProxyResource
+      HttpMethod: ANY
+      AuthorizationType: AWS_IAM
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LiveAliasArn}/invocations"
+
+  Deployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: ProxyMethod
+    Properties:
+      RestApiId: !Ref Api
+
+  Stage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref Api
+      DeploymentId: !Ref Deployment
+      StageName: live
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingRateLimit: !Ref ThrottleRatePerSecond
+          ThrottlingBurstLimit: !Ref ThrottleBurst
+          MetricsEnabled: true
+
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LiveAliasArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/*/*"
+
+  WebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub "${EnvironmentName}-scoring"
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub "${EnvironmentName}-scoring-waf"
+        SampledRequestsEnabled: false
+      Rules:
+        - Name: RateLimitPerSource
+          Priority: 0
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              Limit: !Ref WafRequestsPer5Minutes
+              AggregateKeyType: IP
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub "${EnvironmentName}-scoring-rate"
+            SampledRequestsEnabled: false
+
+  WebAclAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Sub "arn:${AWS::Partition}:apigateway:${AWS::Region}::/restapis/${Api}/stages/${Stage}"
+      WebACLArn: !GetAtt WebAcl.Arn
+
+Outputs:
+  PrivateApiUrl:
+    Description: Resolvable only inside the VPC that holds the endpoint.
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/live"

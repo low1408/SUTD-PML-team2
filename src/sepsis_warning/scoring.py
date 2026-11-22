@@ -31,14 +31,24 @@ def file_sha256(path: Path) -> str:
 
 
 def load_bundle(path: Path, expected_sha256: str | None = None) -> dict:
-    """Load a local model bundle, refusing it if its hash does not match."""
+    """Load a local model bundle, refusing it if its hash does not match.
+
+    Without an explicit hash, the one recorded in ``manifest.json`` next to the
+    bundle is used when that file exists. Joblib can run code on load, so the
+    hash is checked before the file is opened.
+    """
     path = Path(path)
+    source = "the expected hash"
+    if expected_sha256 is None:
+        from .manifest import recorded_sha256
+
+        expected_sha256, source = recorded_sha256(path), "manifest.json beside it"
     if expected_sha256 is not None:
         actual = file_sha256(path)
         if actual != expected_sha256:
             raise ValueError(
-                f"{path} has SHA-256 {actual}, but the monitoring reference was built "
-                f"for {expected_sha256}; use the frozen bundle or rebuild the reference"
+                f"{path} has SHA-256 {actual}, but {source} says {expected_sha256}; "
+                "use the frozen bundle, or rebuild whatever was pinned to it"
             )
     bundle = joblib.load(path)
     missing = BUNDLE_KEYS - set(bundle) if isinstance(bundle, dict) else BUNDLE_KEYS

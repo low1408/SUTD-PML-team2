@@ -1,5 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Modular, not-yet-deployed research scoring service infrastructure.
+Description: >-
+  Sepsis early-warning research platform (not yet deployed). Default: serverless and
+  pay-per-use - SageMaker AI training jobs on spot, the serverless SageMaker MLflow App,
+  and a Lambda scoring API with IAM auth. ServingMode=fargate selects the always-on
+  private VPC design (internal ALB + Fargate) instead.
 
 Parameters:
   EnvironmentName:
@@ -33,17 +37,109 @@ Parameters:
     Type: String
     Default: 10.40.0.0/16
     Description: IPv4 CIDR permitted to reach the load balancer. Defaults to the VPC; add the hospital VPN range when one exists. Never 0.0.0.0/0 with real data.
-  ScoringImageUri:
+  ServingMode:
     Type: String
-    Default: ""
-    Description: Immutable image URI in the ECR repository created by this stack; required when the service is enabled.
+    Default: lambda
+    AllowedValues:
+      - lambda
+      - fargate
+    Description: >-
+      lambda (default) - scale to zero, IAM-authenticated function URL, no VPC costs.
+      fargate - always-on internal load balancer and tasks in private subnets (VPN design).
   DeployScoringService:
     Type: String
     Default: "false"
     AllowedValues:
       - "false"
       - "true"
-    Description: Enable only after an image has been pushed to the ECR repository.
+    Description: Enable after an image has been pushed and a model published to S3.
+  ModelS3Uri:
+    Type: String
+    Default: ""
+    Description: Bundle to serve, from `python -m sepsis_warning publish` (s3://<bucket>/models/vN/model.joblib).
+  ModelSha256:
+    Type: String
+    Default: ""
+    Description: SHA-256 printed by `publish`; the service refuses any other file.
+  LambdaImageUri:
+    Type: String
+    Default: ""
+    Description: Image (target "lambda") in the scoring-lambda repository; required for ServingMode=lambda.
+  LambdaArchitecture:
+    Type: String
+    Default: x86_64
+    AllowedValues:
+      - x86_64
+      - arm64
+  LambdaMemorySize:
+    Type: Number
+    Default: 1024
+    MinValue: 512
+    MaxValue: 4096
+  LambdaReservedConcurrency:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 50
+    Description: Optional cap on parallel executions (0 = not set). Needs account concurrency of at least this plus 100.
+  AllowedInvokerArn:
+    Type: String
+    Default: ""
+    Description: Optional IAM principal outside this account (for example the hospital integration role) allowed to call the function URL.
+  ScoringImageUri:
+    Type: String
+    Default: ""
+    Description: Image (default target) in the scoring-api repository; required for ServingMode=fargate.
+  EnableMlops:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "false"
+      - "true"
+    Description: Serverless MLflow App, SageMaker training role and the team operator policy. No standing cost.
+  TrainingOutputRetentionDays:
+    Type: Number
+    Default: 180
+    MinValue: 1
+  PredictionLogRetentionDays:
+    Type: Number
+    Default: 30
+    MinValue: 1
+  DeploymentType:
+    Type: String
+    Default: Canary10Percent5Minutes
+    AllowedValues:
+      - Canary10Percent5Minutes
+      - Canary10Percent10Minutes
+      - Linear10PercentEvery1Minute
+      - AllAtOnce
+    Description: How a new Lambda version takes traffic; alarms roll it back. AllAtOnce is for dev.
+  EnablePipeline:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "false"
+      - "true"
+    Description: Step Functions training pipeline with gates and a human approval. No standing cost.
+  EnableObservability:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "false"
+      - "true"
+    Description: Prediction log to S3 and, with DriftReferenceS3Uri, the daily drift job (Lambda mode).
+  DriftReferenceS3Uri:
+    Type: String
+    Default: ""
+    Description: s3://<bucket>/monitoring/<file> from `monitor-setup` for the deployed model. Empty = no drift job.
+  RetrainImageTag:
+    Type: String
+    Default: ""
+    Description: Training image tag used when a drift alarm starts the pipeline. Empty = no automatic start.
+  PrivateApiVpcEndpointId:
+    Type: String
+    Default: ""
+    Description: Optional execute-api VPC endpoint. When set, a private API Gateway with WAF fronts the Lambda.
   CertificateArn:
     Type: String
     Default: ""
@@ -72,11 +168,27 @@ Parameters:
     Description: Email recipient required to create the optional budget.
 
 Rules:
-  ScoringImageRequiredWhenEnabled:
+  ModelRequiredWhenEnabled:
     RuleCondition: !Equals [!Ref DeployScoringService, "true"]
     Assertions:
+      - Assert: !Not [!Equals [!Ref ModelS3Uri, ""]]
+        AssertDescription: ModelS3Uri is required when DeployScoringService is true (run `publish` first).
+      - Assert: !Not [!Equals [!Ref ModelSha256, ""]]
+        AssertDescription: ModelSha256 is required when DeployScoringService is true.
+  LambdaImageRequired:
+    RuleCondition: !And
+      - !Equals [!Ref DeployScoringService, "true"]
+      - !Equals [!Ref ServingMode, lambda]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref LambdaImageUri, ""]]
+        AssertDescription: LambdaImageUri is required for ServingMode=lambda.
+  ScoringImageRequired:
+    RuleCondition: !And
+      - !Equals [!Ref DeployScoringService, "true"]
+      - !Equals [!Ref ServingMode, fargate]
+    Assertions:
       - Assert: !Not [!Equals [!Ref ScoringImageUri, ""]]
-        AssertDescription: ScoringImageUri is required when DeployScoringService is true.
+        AssertDescription: ScoringImageUri is required for ServingMode=fargate.
   CertificateRequiresHostname:
     RuleCondition: !Not [!Equals [!Ref CertificateArn, ""]]
     Assertions:
@@ -85,10 +197,28 @@ Rules:
 
 Conditions:
   CreateScoringService: !Equals [!Ref DeployScoringService, "true"]
+  UseLambda: !And
+    - !Condition CreateScoringService
+    - !Equals [!Ref ServingMode, lambda]
+  UseFargate: !And
+    - !Condition CreateScoringService
+    - !Equals [!Ref ServingMode, fargate]
+  CreateMlops: !Equals [!Ref EnableMlops, "true"]
+  CreatePipeline: !And
+    - !Condition CreateMlops
+    - !Equals [!Ref EnablePipeline, "true"]
+  CreateObservability: !And
+    - !Condition UseLambda
+    - !Equals [!Ref EnableObservability, "true"]
+  CreatePrivateApi: !And
+    - !Condition UseLambda
+    - !Not [!Equals [!Ref PrivateApiVpcEndpointId, ""]]
 
 Resources:
+  # VPC, subnets and VPC endpoints are only needed for the always-on Fargate design.
   Network:
     Type: AWS::CloudFormation::Stack
+    Condition: UseFargate
     Properties:
       TemplateURL: network.yaml
       Parameters:
@@ -108,13 +238,105 @@ Resources:
       TemplateURL: artifacts.yaml
       Parameters:
         EnvironmentName: !Ref EnvironmentName
+        TrainingOutputRetentionDays: !Ref TrainingOutputRetentionDays
+        PredictionLogRetentionDays: !Ref PredictionLogRetentionDays
+      Tags:
+        - Key: Project
+          Value: sepsis-warning-research
+
+  Mlops:
+    Type: AWS::CloudFormation::Stack
+    Condition: CreateMlops
+    Properties:
+      TemplateURL: mlops.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        ArtifactBucketName: !GetAtt Artifacts.Outputs.ArtifactBucketName
+        ArtifactBucketArn: !GetAtt Artifacts.Outputs.ArtifactBucketArn
+        ArtifactKeyArn: !GetAtt Artifacts.Outputs.ArtifactKeyArn
+        TrainingRepositoryArn: !GetAtt Artifacts.Outputs.TrainingRepositoryArn
+        LambdaRepositoryArn: !GetAtt Artifacts.Outputs.LambdaRepositoryArn
+        ScoringRepositoryArn: !GetAtt Artifacts.Outputs.EcrRepositoryArn
+      Tags:
+        - Key: Project
+          Value: sepsis-warning-research
+
+  Serverless:
+    Type: AWS::CloudFormation::Stack
+    Condition: UseLambda
+    Properties:
+      TemplateURL: serverless.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        LambdaImageUri: !Ref LambdaImageUri
+        ModelS3Uri: !Ref ModelS3Uri
+        ModelSha256: !Ref ModelSha256
+        ArtifactBucketArn: !GetAtt Artifacts.Outputs.ArtifactBucketArn
+        ArtifactKeyArn: !GetAtt Artifacts.Outputs.ArtifactKeyArn
+        StateTableName: !GetAtt Artifacts.Outputs.StateTableName
+        StateTableArn: !GetAtt Artifacts.Outputs.StateTableArn
+        DeploymentType: !Ref DeploymentType
+        Architecture: !Ref LambdaArchitecture
+        MemorySize: !Ref LambdaMemorySize
+        ReservedConcurrency: !Ref LambdaReservedConcurrency
+        AllowedInvokerArn: !Ref AllowedInvokerArn
+      Tags:
+        - Key: Project
+          Value: sepsis-warning-research
+
+  Pipeline:
+    Type: AWS::CloudFormation::Stack
+    Condition: CreatePipeline
+    Properties:
+      TemplateURL: pipeline.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        ArtifactBucketName: !GetAtt Artifacts.Outputs.ArtifactBucketName
+        ArtifactKeyArn: !GetAtt Artifacts.Outputs.ArtifactKeyArn
+        TrainingRepositoryUri: !GetAtt Artifacts.Outputs.TrainingRepositoryUri
+        SageMakerExecutionRoleArn: !GetAtt Mlops.Outputs.SageMakerExecutionRoleArn
+        MlflowAppArn: !GetAtt Mlops.Outputs.MlflowAppArn
+        NotificationTopicArn: !GetAtt Monitoring.Outputs.AlarmTopicArn
+      Tags:
+        - Key: Project
+          Value: sepsis-warning-research
+
+  Observability:
+    Type: AWS::CloudFormation::Stack
+    Condition: CreateObservability
+    Properties:
+      TemplateURL: observability.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        ArtifactBucketName: !GetAtt Artifacts.Outputs.ArtifactBucketName
+        ArtifactBucketArn: !GetAtt Artifacts.Outputs.ArtifactBucketArn
+        ArtifactKeyArn: !GetAtt Artifacts.Outputs.ArtifactKeyArn
+        FunctionLogGroupName: !GetAtt Serverless.Outputs.FunctionLogGroupName
+        LambdaImageUri: !Ref LambdaImageUri
+        AlarmTopicArn: !GetAtt Monitoring.Outputs.AlarmTopicArn
+        DriftReferenceS3Uri: !Ref DriftReferenceS3Uri
+        PipelineArn: !If [CreatePipeline, !GetAtt Pipeline.Outputs.PipelineArn, ""]
+        RetrainImageTag: !Ref RetrainImageTag
+      Tags:
+        - Key: Project
+          Value: sepsis-warning-research
+
+  PrivateApi:
+    Type: AWS::CloudFormation::Stack
+    Condition: CreatePrivateApi
+    Properties:
+      TemplateURL: apigw.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        LiveAliasArn: !GetAtt Serverless.Outputs.LiveAliasArn
+        VpcEndpointId: !Ref PrivateApiVpcEndpointId
       Tags:
         - Key: Project
           Value: sepsis-warning-research
 
   Service:
     Type: AWS::CloudFormation::Stack
-    Condition: CreateScoringService
+    Condition: UseFargate
     Properties:
       TemplateURL: service.yaml
       Parameters:
@@ -125,10 +347,11 @@ Resources:
         AllowedSourceCidr: !Ref AllowedSourceCidr
         LoadBalancerScheme: !Ref LoadBalancerScheme
         ScoringImageUri: !Ref ScoringImageUri
+        ModelS3Uri: !Ref ModelS3Uri
+        ModelSha256: !Ref ModelSha256
         CertificateArn: !Ref CertificateArn
         ApiHostname: !Ref ApiHostname
         DesiredCount: !Ref DesiredCount
-        ArtifactBucketName: !GetAtt Artifacts.Outputs.ArtifactBucketName
         ArtifactBucketArn: !GetAtt Artifacts.Outputs.ArtifactBucketArn
         ArtifactKeyArn: !GetAtt Artifacts.Outputs.ArtifactKeyArn
         EcrRepositoryArn: !GetAtt Artifacts.Outputs.EcrRepositoryArn
@@ -138,17 +361,19 @@ Resources:
         - Key: Project
           Value: sepsis-warning-research
 
+  # Always created, so the budget alert covers training and storage from day one.
   Monitoring:
     Type: AWS::CloudFormation::Stack
-    Condition: CreateScoringService
     Properties:
       TemplateURL: monitoring.yaml
       Parameters:
         EnvironmentName: !Ref EnvironmentName
-        ClusterName: !GetAtt Service.Outputs.ClusterName
-        ServiceName: !GetAtt Service.Outputs.ServiceName
-        LoadBalancerFullName: !GetAtt Service.Outputs.LoadBalancerFullName
-        TargetGroupFullName: !GetAtt Service.Outputs.TargetGroupFullName
+        ServingMode: !If [UseLambda, lambda, !If [UseFargate, fargate, none]]
+        FunctionName: !If [UseLambda, !GetAtt Serverless.Outputs.FunctionName, unused]
+        ClusterName: !If [UseFargate, !GetAtt Service.Outputs.ClusterName, unused]
+        ServiceName: !If [UseFargate, !GetAtt Service.Outputs.ServiceName, unused]
+        LoadBalancerFullName: !If [UseFargate, !GetAtt Service.Outputs.LoadBalancerFullName, unused]
+        TargetGroupFullName: !If [UseFargate, !GetAtt Service.Outputs.TargetGroupFullName, unused]
         AlertEmail: !Ref AlertEmail
         MonthlyBudgetUsd: !Ref MonthlyBudgetUsd
         BudgetEmail: !Ref BudgetEmail
@@ -159,11 +384,49 @@ Resources:
 Outputs:
   ApiBaseUrl:
     Condition: CreateScoringService
-    Description: Public scoring API endpoint. Unauthenticated; synthetic use only.
-    Value: !GetAtt Service.Outputs.ApiBaseUrl
+    Description: Scoring API. Lambda - HTTPS function URL, requests must be SigV4-signed. Fargate - internal load balancer.
+    Value: !If [UseLambda, !GetAtt Serverless.Outputs.ApiBaseUrl, !GetAtt Service.Outputs.ApiBaseUrl]
   ArtifactBucketName:
     Value: !GetAtt Artifacts.Outputs.ArtifactBucketName
+  ArtifactKeyArn:
+    Value: !GetAtt Artifacts.Outputs.ArtifactKeyArn
   EcrRepositoryUri:
+    Description: Image repository for the Fargate scoring service (default Dockerfile target).
     Value: !GetAtt Artifacts.Outputs.EcrRepositoryUri
+  LambdaRepositoryUri:
+    Description: Image repository for the Lambda scoring function (Dockerfile target "lambda").
+    Value: !GetAtt Artifacts.Outputs.LambdaRepositoryUri
+  TrainingRepositoryUri:
+    Description: Image repository for SageMaker training jobs (Dockerfile target "training").
+    Value: !GetAtt Artifacts.Outputs.TrainingRepositoryUri
   StateTableName:
     Value: !GetAtt Artifacts.Outputs.StateTableName
+  MlflowAppArn:
+    Condition: CreateMlops
+    Description: MLflow tracking URI (needs the sagemaker-mlflow plugin; `pip install -e .[sagemaker]`).
+    Value: !GetAtt Mlops.Outputs.MlflowAppArn
+  SageMakerExecutionRoleArn:
+    Condition: CreateMlops
+    Value: !GetAtt Mlops.Outputs.SageMakerExecutionRoleArn
+  TrainerPolicyArn:
+    Condition: CreateMlops
+    Description: Attach to people who upload data and start training.
+    Value: !GetAtt Mlops.Outputs.TrainerPolicyArn
+  ApproverPolicyArn:
+    Condition: CreateMlops
+    Description: Attach to people who review and promote models (not the trainers).
+    Value: !GetAtt Mlops.Outputs.ApproverPolicyArn
+  DeployerPolicyArn:
+    Condition: CreateMlops
+    Description: Attach to the people or CI role that publish and deploy.
+    Value: !GetAtt Mlops.Outputs.DeployerPolicyArn
+  PipelineArn:
+    Condition: CreatePipeline
+    Description: Start with {"image_tag", "git_commit", "require_real_data"}; it waits for an approval.
+    Value: !GetAtt Pipeline.Outputs.PipelineArn
+  PredictionLogPrefix:
+    Condition: CreateObservability
+    Value: !GetAtt Observability.Outputs.PredictionLogPrefix
+  PrivateApiUrl:
+    Condition: CreatePrivateApi
+    Value: !GetAtt PrivateApi.Outputs.PrivateApiUrl

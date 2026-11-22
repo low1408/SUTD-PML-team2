@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Load balancer (internal by default) and private Fargate scoring service; no API Gateway or authentication yet.
+Description: Always-on option - internal load balancer and private Fargate scoring service in a VPC; no API Gateway or authentication yet.
 
 Parameters:
   EnvironmentName:
@@ -20,6 +20,13 @@ Parameters:
       - internet-facing
   ScoringImageUri:
     Type: String
+  ModelS3Uri:
+    Type: String
+    AllowedPattern: "^s3://.+/models/.+\\.joblib$"
+    Description: Published bundle from `python -m sepsis_warning publish`.
+  ModelSha256:
+    Type: String
+    AllowedPattern: "^[0-9a-f]{64}$"
   CertificateArn:
     Type: String
     Default: ""
@@ -30,8 +37,6 @@ Parameters:
     Type: Number
     MinValue: 1
     MaxValue: 4
-  ArtifactBucketName:
-    Type: String
   ArtifactBucketArn:
     Type: String
   ArtifactKeyArn:
@@ -107,10 +112,9 @@ Resources:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
+                # Alert ledger only: read a stay's delivered alerts and append new ones.
                 Action:
-                  - dynamodb:DeleteItem
                   - dynamodb:GetItem
-                  - dynamodb:PutItem
                   - dynamodb:UpdateItem
                 Resource: !Ref StateTableArn
               - Effect: Allow
@@ -249,16 +253,21 @@ Resources:
         - Name: scoring-api
           Image: !Ref ScoringImageUri
           Essential: true
+          # The image's entrypoint is `serve`; the task downloads the published
+          # bundle and refuses to start unless its SHA-256 matches.
+          Command:
+            - --model-s3
+            - !Ref ModelS3Uri
+            - --model-sha256
+            - !Ref ModelSha256
           PortMappings:
             - ContainerPort: 8000
               Protocol: tcp
           Environment:
-            - Name: MODEL_BUCKET
-              Value: !Ref ArtifactBucketName
-            - Name: MODEL_PREFIX
-              Value: models/
-            - Name: STAY_STATE_TABLE
+            - Name: ALERT_TABLE
               Value: !Ref StateTableName
+            - Name: ENVIRONMENT_NAME
+              Value: !Ref EnvironmentName
           LogConfiguration:
             LogDriver: awslogs
             Options:

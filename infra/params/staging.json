@@ -1,0 +1,9 @@
+{
+  "_comment": "Parameters for the staging stack (sepsis-staging). Use a separate AWS account per environment. Budget and alert emails come from BUDGET_EMAIL / ALERT_EMAIL.",
+  "EnvironmentName": "sepsis-staging",
+  "DeploymentType": "Canary10Percent5Minutes",
+  "MonthlyBudgetUsd": "30",
+  "TrainingOutputRetentionDays": "90",
+  "EnablePipeline": "true",
+  "EnableObservability": "true"
+}

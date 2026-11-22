@@ -10,7 +10,12 @@ import pandas as pd
 from sepsis_warning.baselines import sirs_count
 from sepsis_warning.data import DYNAMIC, STATIC
 from sepsis_warning.hospital_comparison import (
-    add_sirs, missingness, restrict_a_to_train, run_comparison, stay_table, summary_table,
+    add_sirs,
+    missingness,
+    restrict_a_to_train,
+    run_comparison,
+    stay_table,
+    summary_table,
 )
 
 

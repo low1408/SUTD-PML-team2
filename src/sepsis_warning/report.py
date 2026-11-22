@@ -1,11 +1,15 @@
-"""Write a standalone, offline patient replay from held-out predictions."""
+"""Write a standalone, offline patient replay page.
+
+``train`` writes it for validation stays; ``evaluate`` writes it for the test
+splits of a frozen model. ``summary["splits"]`` holds the metrics per split shown.
+"""
 
 import json
 from pathlib import Path
 
 
 def write_report(path, table, summary, threshold, synthetic):
-    # Embed only held-out patients. Labels appear as retrospective annotations.
+    # Labels appear as retrospective annotations only.
     patients = []
     for patient_id, rows in table.groupby("patient_id", sort=True):
         rows = rows.sort_values("hour")

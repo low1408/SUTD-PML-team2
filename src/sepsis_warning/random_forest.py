@@ -16,8 +16,8 @@ Two deliberate differences from the reference pipeline:
 
 import numpy as np
 
-from .logistic import _as_matrix, _binary_labels, row_weights
 from .histogram_trees import FeatureBinner, grow_tree, splittable_features
+from .logistic import _as_matrix, _binary_labels, row_weights
 
 
 class NumpyRandomForest:

@@ -288,7 +288,7 @@ def subgroup_rows(table: pd.DataFrame, config: MonitoringConfig) -> list[dict]:
             septic = int(stays.loc[members, "septic"].sum())
             sufficient = septic >= config.min_subgroup_septic_stays and len(members) > septic
             row = {
-                "attribute": attribute, "group": group, "stays": int(len(members)),
+                "attribute": attribute, "group": group, "stays": len(members),
                 "septic_stays": septic, "sufficient": bool(sufficient),
                 "normalized_hourly_utility": None, "false_alerts_per_nonseptic_patient_day": None,
             }
@@ -338,7 +338,7 @@ def slow_statistics(window: pd.DataFrame, reference: dict, config: MonitoringCon
         return empty, {"slow_note": "labels not settled"}, []
     stays = window.groupby("patient_id", sort=False)["label"].max()
     if len(stays) < config.min_slow_stays or stays.sum() < config.min_slow_septic_stays:
-        return empty, {"slow_note": "too few stays or septic stays", "stays": int(len(stays)),
+        return empty, {"slow_note": "too few stays or septic stays", "stays": len(stays),
                        "septic_stays": int(stays.sum())}, []
     window = window.assign(label=window["label"].astype(int))
     values = performance_values(window)
@@ -504,7 +504,7 @@ def run_monitoring(scored: pd.DataFrame, reference: dict) -> dict:
             window = scored.iloc[rows]
             output = compute(window, reference, config)
             stats, extras = output[0], output[1]
-            record = {"window": number, "stays": int(window["patient_id"].nunique()), "hours": int(len(window)), **extras}
+            record = {"window": number, "stays": int(window["patient_id"].nunique()), "hours": len(window), **extras}
             for stat in stats_names:
                 value = stats[stat]
                 status = classify(value, thresholds[stat])
@@ -556,7 +556,7 @@ def summarize_results(results: dict, scored: pd.DataFrame, reference: dict) -> d
             "reference_missing_fraction": reference["inputs"][name]["missing_fraction"],
             "median_missing_change": float(missing_values.median()) if len(missing_values) else None,
             "missing_alert_share": float((fast[f"status:missing:{name}"] == ALERT).mean()) if len(fast) else 0.0,
-            "evaluable_psi_windows": int(len(psi_values)),
+            "evaluable_psi_windows": len(psi_values),
             "median_psi": float(psi_values.median()) if len(psi_values) else None,
             "psi_alert_threshold": reference["thresholds"][f"psi:{name}"]["alert"],
             "median_psi_over_alert_threshold": (
@@ -576,7 +576,7 @@ def summarize_results(results: dict, scored: pd.DataFrame, reference: dict) -> d
             slow_median[key] = float(column.median()) if len(column) else None
     return {
         "windows": {
-            "fast": int(len(fast)), "slow": int(len(slow)),
+            "fast": len(fast), "slow": len(slow),
             "fast_tail_hours_not_evaluated": results["fast_tail_hours"],
             "slow_tail_hours_not_evaluated": results["slow_tail_hours"],
         },
@@ -822,6 +822,37 @@ def setup_monitoring(data: Path, model: Path, output: Path, config: MonitoringCo
     return reference
 
 
+def _write_cross_source_section(report: Path, cross: dict) -> None:
+    """Append the M01 comparison to the replay report (aggregates only)."""
+    def fmt(value, digits=3):
+        return "n/a" if value is None else f"{value:.{digits}f}"
+
+    def ci(interval):
+        return "n/a" if interval.get("low") is None else f"{interval['low']:.3f} to {interval['high']:.3f}"
+
+    a, b = "reference_A_validation", "replay_B_external_test"
+    rows = ["", "## Hospital A validation against hospital B (cross-source)", "",
+            f"{cross['method']}", "",
+            "| Metric | A validation | 95% interval | B external test | 95% interval | B minus A (95% interval) |",
+            "|---|---:|---|---:|---|---|"]
+    for metric in ("normalized_hourly_utility", "auroc", "average_precision",
+                   "false_alert_events_per_nonseptic_patient_day", "early_detection_recall"):
+        rows.append(
+            f"| {metric} | {fmt(cross['metrics_point'][a][metric])} | "
+            f"{ci(cross['metrics_interval_95'][a][metric])} | {fmt(cross['metrics_point'][b][metric])} | "
+            f"{ci(cross['metrics_interval_95'][b][metric])} | "
+            f"{fmt(cross['difference_B_minus_A'][metric])} ({ci(cross['difference_interval_95'][metric])}) |")
+    timing = cross["timing_limitations"][b]
+    rows += ["", "Timing limitations on hospital B: "
+             f"{timing['stays']} stays, {timing['septic_stays']} septic, "
+             f"{timing['left_censored_septic_stays']} left-censored, "
+             f"{timing['septic_stays_ending_before_onset']} ending before inferred onset, "
+             f"{timing['stays_eligible_for_early_detection']} eligible for early detection.",
+             "", cross["caveat"], ""]
+    with report.open("a", encoding="utf-8") as handle:
+        handle.write("\n".join(rows) + "\n")
+
+
 def replay_monitoring(data: Path, model: Path, reference_path: Path, split: str, output: Path) -> dict:
     """Run both speeds over a held-out split with the frozen reference; writes aggregates only."""
     if split not in REPLAY_SPLITS:
@@ -842,6 +873,14 @@ def replay_monitoring(data: Path, model: Path, reference_path: Path, split: str,
             f"({reference['config']['fast_window_hours']}); rebuild the reference with smaller windows"
         )
     results = run_monitoring(scored, reference)
+    cross = None
+    if split == "external_test":
+        # M01: the same metrics on hospital A validation (the frozen model's reference population),
+        # with stay-grouped uncertainty. Thresholds and cooldown are the frozen ones; nothing is retuned.
+        from .cross_source import cross_source_report
+
+        reference_scored = score_patients(bundle, splits["validation"], REQUIRED_COLUMNS)
+        cross = cross_source_report(reference_scored, scored)
     summary = {
         "split": split, "data_mode": data_mode,
         "reference_sha256": file_sha256(Path(reference_path)), "model_sha256": reference["model_sha256"],
@@ -855,8 +894,14 @@ def replay_monitoring(data: Path, model: Path, reference_path: Path, split: str,
     results["fast"].to_csv(output / "fast_windows.csv", index=False)
     results["slow"].to_csv(output / "slow_windows.csv", index=False)
     results["subgroups"].to_csv(output / "slow_subgroups.csv", index=False)
+    if cross is not None:
+        summary["cross_source"] = cross
     _write_json(output / "summary.json", summary)
+    if cross is not None:
+        _write_json(output / "cross_source.json", cross)
     write_report(output, summary, reference, recreate)
+    if cross is not None:
+        _write_cross_source_section(output / "monitoring_report.md", cross)
     plot_overview(output, results, summary, reference,
                   f"python -m sepsis_warning monitor-replay --split {split} (full command in monitoring_report.md)")
     return summary

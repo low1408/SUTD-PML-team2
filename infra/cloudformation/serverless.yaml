@@ -1,0 +1,230 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >-
+  Serverless scoring API: the same FastAPI app on AWS Lambda behind a function URL with
+  IAM (SigV4) authentication. No VPC, NAT, load balancer or VPC endpoints; it costs
+  nothing while idle. Every release is a new Lambda version behind the "live" alias,
+  shifted in as a canary and rolled back automatically if errors or latency alarm.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+  LambdaImageUri:
+    Type: String
+    Description: Image (Dockerfile target "lambda") in the stack's scoring-lambda ECR repository.
+  ModelS3Uri:
+    Type: String
+    AllowedPattern: "^s3://.+/models/.+\\.joblib$"
+    Description: Published bundle from `python -m sepsis_warning publish`.
+  ModelSha256:
+    Type: String
+    AllowedPattern: "^[0-9a-f]{64}$"
+  ArtifactBucketArn:
+    Type: String
+  ArtifactKeyArn:
+    Type: String
+  StateTableName:
+    Type: String
+  StateTableArn:
+    Type: String
+  Architecture:
+    Type: String
+    Default: x86_64
+    AllowedValues:
+      - x86_64
+      - arm64
+    Description: arm64 (Graviton) is about 20 percent cheaper per GB-second; build the image for it first.
+  MemorySize:
+    Type: Number
+    Default: 1024
+    MinValue: 512
+    MaxValue: 4096
+  ReservedConcurrency:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    MaxValue: 50
+    Description: >-
+      Optional hard cap on parallel executions (0 = not set). Lambda only lets you reserve
+      the account's unreserved concurrency minus 100, so new accounts with a low limit
+      must leave this at 0 or request a quota increase first.
+  DeploymentType:
+    Type: String
+    Default: Canary10Percent5Minutes
+    AllowedValues:
+      - Canary10Percent5Minutes
+      - Canary10Percent10Minutes
+      - Linear10PercentEvery1Minute
+      - AllAtOnce
+    Description: How a new version takes traffic. AllAtOnce is for dev only.
+  AllowedInvokerArn:
+    Type: String
+    Default: ""
+    Description: >-
+      Optional IAM principal (for example the hospital integration role) allowed to call
+      the function URL. Principals in this account need lambda:InvokeFunctionUrl and
+      lambda:InvokeFunction in their own IAM policy.
+
+Conditions:
+  HasExternalInvoker: !Not [!Equals [!Ref AllowedInvokerArn, ""]]
+  HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, 0]]
+
+Resources:
+  FunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-scoring"
+      RetentionInDays: 30
+
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReadModelWriteLogsAndAlertLedger
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${ArtifactBucketArn}/models/*"
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Ref ArtifactKeyArn
+                Condition:
+                  StringEquals:
+                    "kms:ViaService":
+                      - !Sub "s3.${AWS::Region}.amazonaws.com"
+                      - !Sub "dynamodb.${AWS::Region}.amazonaws.com"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "${FunctionLogGroup.Arn}:*"
+              # Alert ledger: read a stay's delivered alerts, append new ones. Nothing else.
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !Ref StateTableArn
+              - Effect: Allow
+                Action: kms:GenerateDataKey
+                Resource: !Ref ArtifactKeyArn
+                Condition:
+                  StringEquals:
+                    "kms:ViaService": !Sub "dynamodb.${AWS::Region}.amazonaws.com"
+
+  # Rollback triggers for the canary: measured on the alias, so only live traffic counts.
+  CanaryErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: >-
+        Scoring function errors on the live alias. During a release this rolls the canary back.
+        Runbook: docs/runbooks/scoring-errors.md
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub "${EnvironmentName}-scoring"
+        - Name: Resource
+          Value: !Sub "${EnvironmentName}-scoring:live"
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  CanaryDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: >-
+        95th-percentile duration above 10 seconds on the live alias. Rolls a canary back.
+        Runbook: docs/runbooks/scoring-errors.md
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions:
+        - Name: FunctionName
+          Value: !Sub "${EnvironmentName}-scoring"
+        - Name: Resource
+          Value: !Sub "${EnvironmentName}-scoring:live"
+      ExtendedStatistic: p95
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 10000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  ScoringFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-scoring"
+      Description: Sepsis early-warning research scorer (stateless scoring; alert ledger in DynamoDB).
+      PackageType: Image
+      ImageUri: !Ref LambdaImageUri
+      Role: !GetAtt FunctionRole.Arn
+      Architectures:
+        - !Ref Architecture
+      MemorySize: !Ref MemorySize
+      Timeout: 30
+      ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref AWS::NoValue]
+      LoggingConfig:
+        LogGroup: !Ref FunctionLogGroup
+        LogFormat: Text
+      Environment:
+        Variables:
+          MODEL_S3_URI: !Ref ModelS3Uri
+          MODEL_SHA256: !Ref ModelSha256
+          ALERT_TABLE: !Ref StateTableName
+          ENVIRONMENT_NAME: !Ref EnvironmentName
+          MPLCONFIGDIR: /tmp/matplotlib
+      # A new version for every change, including a new model (environment variables).
+      AutoPublishAlias: live
+      AutoPublishAliasAllProperties: true
+      DeploymentPreference:
+        Type: !Ref DeploymentType
+        Alarms:
+          - !Ref CanaryErrorsAlarm
+          - !Ref CanaryDurationAlarm
+      # HTTPS endpoint on the live alias; every request must be SigV4-signed by an allowed principal.
+      FunctionUrlConfig:
+        AuthType: AWS_IAM
+        InvokeMode: BUFFERED
+      Tags:
+        Project: sepsis-warning-research
+
+  ExternalInvokeUrlPermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasExternalInvoker
+    Properties:
+      FunctionName: !Ref ScoringFunction.Alias
+      Action: lambda:InvokeFunctionUrl
+      Principal: !Ref AllowedInvokerArn
+      FunctionUrlAuthType: AWS_IAM
+
+  ExternalInvokeFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasExternalInvoker
+    Properties:
+      FunctionName: !Ref ScoringFunction.Alias
+      Action: lambda:InvokeFunction
+      Principal: !Ref AllowedInvokerArn
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  ApiBaseUrl:
+    Value: !GetAtt ScoringFunctionUrl.FunctionUrl
+  FunctionName:
+    Value: !Ref ScoringFunction
+  FunctionLogGroupName:
+    Value: !Ref FunctionLogGroup
+  LiveAliasArn:
+    Value: !Ref ScoringFunction.Alias

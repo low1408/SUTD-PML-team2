@@ -19,10 +19,10 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import make_pipeline
 from sklearn.tree import DecisionTreeClassifier
 
-from sepsis_warning import random_forest, histogram_trees
+from sepsis_warning import histogram_trees, random_forest
 from sepsis_warning.baselines import auroc
-from sepsis_warning.random_forest import NumpyRandomForest
 from sepsis_warning.logistic import calibrate_frozen, sigmoid
+from sepsis_warning.random_forest import NumpyRandomForest
 
 
 def synthetic(n, seed, features=10):

@@ -188,8 +188,12 @@ python -m sepsis_warning monitor-setup --data data/synthetic --model artifacts/d
   --min-subgroup-septic-stays 2
 python -m sepsis_warning monitor-replay --data data/synthetic --model artifacts/demo/model.joblib \
   --reference artifacts/monitoring/demo-reference/monitoring_reference.json \
-  --split external_test --output artifacts/monitoring/demo-replay-b
+  --split external_test --output artifacts/monitoring/demo-replay-b --after-freeze
 ```
+
+`monitor-replay` refuses `internal_test` and `external_test` unless `--after-freeze`
+is given, which records that the model has been frozen. It also refuses a
+bundle whose SHA-256 differs from the reference.
 
 Real data, once the team has frozen the model, features, calibration and alert
 policy:
@@ -199,8 +203,28 @@ python -m sepsis_warning monitor-setup --data data/physionet --model artifacts/r
   --output artifacts/monitoring/reference
 python -m sepsis_warning monitor-replay --data data/physionet --model artifacts/real/model.joblib \
   --reference artifacts/monitoring/reference/monitoring_reference.json \
-  --split external_test --output artifacts/monitoring/replay-b
+  --split external_test --output artifacts/monitoring/replay-b --after-freeze
 ```
+
+## 8a. Hospital B replay (M01)
+
+The external-test replay adds a cross-source comparison to the window checks.
+It is written to `cross_source.json` and a section of `monitoring_report.md`:
+
+- **Same metrics on both sources**: hospital A validation (the frozen model's
+  own reference population, scored by the same bundle) and hospital B, for
+  normalized utility, AUROC, average precision, false alerts per non-septic
+  patient-day and early-detection recall.
+- **Record-grouped uncertainty**: a bootstrap over whole stays, 200 draws, seed
+  42. Hours within a stay are never treated as independent. Each source is
+  resampled on its own; the B-minus-A interval uses the paired draws.
+- **Timing limitations**: counts of stays, septic stays, left-censored septic
+  stays, septic stays ending before the inferred onset, and stays eligible for
+  early detection. Recall is always reported with its denominator.
+
+The replay applies the frozen threshold and cooldown. Nothing on hospital B
+changes a threshold, a cooldown or the reference. The synthetic fixture is
+used only to test the code: its numbers say nothing about the real hospital B.
 
 On the full cohort, building the slow no-shift thresholds takes roughly two
 minutes after the records load (about 0.5 s per slow window).
@@ -276,4 +300,5 @@ Safeguards in the commands:
 | Calibration and performance monitoring need delayed labels | Section 7; `test_slow_checks_need_settled_labels` |
 | Unlabeled shifts do not prove performance loss | Section 1; stated in every report and summary |
 | No automatic retraining from alerts | Section 6 runbook; `automatic_retraining: false` in the reference and every summary; the module has no training code |
-| Still open | Team review of owners and floors; the real-data reference after the model freeze |
+| Hospital B replay with the cross-source comparison and record-grouped uncertainty (M01) | Section 8a; `cross_source.py`; `tests/test_hospital_b_replay.py` (9 tests, including the freeze gate and a whole-stay bootstrap) |
+| Still open | Team review of owners and floors; the real-data reference and the real hospital B replay after the model freeze (both need the team's freeze decision) |

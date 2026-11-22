@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib.metadata
 import json
+import os
 import platform
 import time
 from pathlib import Path
@@ -13,28 +14,56 @@ import pandas as pd
 from threadpoolctl import threadpool_limits
 
 from .baselines import (
-    BASELINE_THRESHOLD, BASELINES, auroc, average_precision, baseline_table,
-    hourly_classification_metrics, plot_sirs_threshold_tradeoff, sirs_threshold_sweep,
+    BASELINE_THRESHOLD,
+    BASELINES,
+    auroc,
+    average_precision,
+    baseline_table,
+    hourly_classification_metrics,
+    plot_sirs_threshold_tradeoff,
+    sirs_threshold_sweep,
 )
 from .data import generate_synthetic, load_patients, read_patient, split_patients
-from .hospital_comparison import run_comparison
 from .features import META, build_features, feature_table, select_saved_features
-from .modeling import candidate_models, fit_calibrated
+from .hospital_comparison import run_comparison
+from .manifest import build_manifest, write_manifest
 from .missingness import run_missingness_analysis
-from .monitoring import REPLAY_SPLITS, MonitoringConfig, replay_monitoring, setup_monitoring
-from .policy import apply_policy, summarize, tune_threshold
+from .modeling import (
+    candidate_models,
+    complexity_ranks,
+    fit_calibrated,
+    load_model_config,
+)
+from .monitoring import (
+    REPLAY_SPLITS,
+    MonitoringConfig,
+    replay_monitoring,
+    setup_monitoring,
+)
+from .policy import apply_policy, select_candidate, summarize, tune_threshold
 from .prepare import prepare_parquet, write_summary
 from .report import write_report
-from .scoring import load_bundle
-from .splits import write_splits
-from .tracking import DEFAULT_TRACKING_URI, check_tracking_uri, log_run, require_mlflow, run_metadata
-from .ward import (
-    HELD_OUT_SPLITS, SELECTION_SPLITS, build_payload, check_split, choose_stays,
-    score_locally, score_via_api, write_ward,
-)
 from .schema import extreme_value_counts, validate_hourly
+from .scoring import file_sha256, load_bundle
 from .sirs_failures import failure_tables
 from .splits import load_split_patients, write_splits
+from .tracking import (
+    DEFAULT_TRACKING_URI,
+    check_tracking_uri,
+    log_run,
+    require_mlflow,
+    run_metadata,
+)
+from .ward import (
+    HELD_OUT_SPLITS,
+    SELECTION_SPLITS,
+    build_payload,
+    check_split,
+    choose_stays,
+    score_locally,
+    score_via_api,
+    write_ward,
+)
 
 
 def write_json(path, value):
@@ -84,6 +113,33 @@ def candidate_details(estimator, seconds) -> dict:
             "loss_history": [float(value) for value in history] if history is not None else None}
 
 
+def check_training_data(args) -> None:
+    """Hard schema rules on the whole Parquet table before any model is fitted.
+
+    Also writes the review-flag counts for training stays (small cells hidden).
+    """
+    if getattr(args, "skip_data_checks", False):
+        print("WARNING: data checks skipped (--skip-data-checks)", flush=True)
+        return
+    try:
+        import pandera  # noqa: F401
+    except ImportError as error:
+        raise RuntimeError(
+            "training on a Parquet table runs the data checks, which need the checks extra: "
+            "`pip install -e .[checks]` (or pass --skip-data-checks)"
+        ) from error
+    frame = pd.read_parquet(args.data)
+    validate_hourly(frame)
+    print(f"Data checks passed: {frame.groupby(['hospital', 'patient_id']).ngroups} stays, {len(frame)} rows.",
+          flush=True)
+    splits_path = getattr(args, "splits", None) or args.data.with_name("splits.csv")
+    assigned = pd.read_csv(splits_path, dtype=str)
+    train = assigned.loc[assigned["split"] == "train", ["hospital", "patient_id"]]
+    frame["patient_id"] = frame["patient_id"].astype(str)
+    extreme_value_counts(frame.merge(train, on=["hospital", "patient_id"])).to_csv(
+        args.output / "extreme_value_review_train.csv", index=False)
+
+
 def run_experiment(args):
     if args.output.exists() and any(args.output.iterdir()):
         raise ValueError(f"{args.output} is not empty; use a new output directory")
@@ -109,14 +165,19 @@ def run_experiment(args):
                 "sha256": sha,
             })
     pd.DataFrame(manifest).to_csv(args.output / "split_manifest.csv", index=False)
-    # Only source training/calibration/validation features are built before
-    # selecting the model and threshold. Test outcomes never guide selection.
+    if args.data.is_file():
+        check_training_data(args)
+    # Only training, calibration and validation rows are touched here. The test
+    # splits are scored once per frozen model, by the separate `evaluate` command.
     tables = {name: feature_table(splits[name], args.window) for name in ["train", "calibration", "validation"]}
     columns = [c for c in tables["train"] if c not in META]
+    model_config, model_config_sha = load_model_config(getattr(args, "models_config", None))
     comparisons = []
     fitted = {}
     details = {}
-    for name, estimator in candidate_models(args.seed).items():
+    validation_scores = {}
+    candidates = candidate_models(args.seed, model_config, getattr(args, "include_numpy_models", False))
+    for name, estimator in candidates.items():
         print(f"Training {name}...", flush=True)
         started = time.perf_counter()
         with threadpool_limits(limits=2):
@@ -127,35 +188,21 @@ def run_experiment(args):
         metrics = tune_threshold(validation, args.budget, args.cooldown)
         comparisons.append({"model": name, **metrics})
         fitted[name] = model
-    selected = max(comparisons, key=lambda m: (
-        m["normalized_hourly_utility"], -m["false_alert_events_per_nonseptic_patient_day"],
-        m["average_precision"],
-    ))
+        validation_scores[name] = validation
+    selected, selection = select_candidate(comparisons, complexity_ranks(model_config))
+    # The rule every model must beat, on the same validation stays and under the same alert
+    # budget (its criteria-count threshold is tuned the same way). A promotion gate reads this.
+    sirs = tune_threshold(baseline_table(splits["validation"], "sirs"), args.budget, args.cooldown)
+    sirs["brier_score"] = None  # the SIRS score is not a probability
     name, threshold = selected["model"], selected["threshold"]
     pd.DataFrame(comparisons).to_csv(args.output / "validation_models.csv", index=False)
     write_json(args.output / "candidate_details.json", details)
-    bundle = {
-        "model": fitted[name], "model_name": name, "feature_columns": columns,
-        "window": args.window, "threshold": threshold, "cooldown": args.cooldown,
-        "synthetic": synthetic,
-    }
-    joblib.dump(bundle, args.output / "model.joblib")
-    held_out = {}
-    predictions = []
-    for split in ["internal_test", "external_test"]:
-        table = feature_table(splits[split], args.window)
-        predicted = table[META].copy()
-        with threadpool_limits(limits=2):
-            predicted["probability"] = fitted[name].predict_proba(table[columns])[:, 1]
-        predicted = apply_policy(predicted, threshold, args.cooldown)
-        held_out[split] = summarize(predicted)
-        predicted["split"] = split
-        predictions.append(predicted)
     summary = {
         "data_mode": "synthetic_fixture" if synthetic else "physionet",
         "selected_model": name, "threshold": threshold,
         "validation_alarm_budget": args.budget, "cooldown_hours": args.cooldown,
-        "validation_models": comparisons, "held_out": held_out,
+        "selection": selection, "validation_models": comparisons,
+        "reference_baselines": {"sirs": sirs},
     }
     config = {
         "seed": args.seed, "window_hours": args.window, "budget": args.budget,
@@ -163,9 +210,12 @@ def run_experiment(args):
         "python": platform.python_version(), "platform": platform.platform(),
         "packages": {p: importlib.metadata.version(p) for p in ["numpy", "pandas", "scipy", "scikit-learn", "joblib"]},
         "synthetic": synthetic, "feature_columns": columns,
+        "models": model_config, "models_config_sha256": model_config_sha,
     }
     write_json(args.output / "config.json", config)
     write_json(args.output / "metrics.json", summary)
+    # The same validation-only summary under the name tracking, S3 and GET /model read.
+    write_json(args.output / "selection_metrics.json", summary)
     splits_summary = args.splits_summary
     if splits_summary is None and args.data.is_file():
         splits_path = getattr(args, "splits", None) or args.data.with_name("splits.csv")
@@ -175,23 +225,50 @@ def run_experiment(args):
                 candidate_seed = json.loads(candidate.read_text(encoding="utf-8")).get("seed")
                 if candidate_seed is not None and int(candidate_seed) == int(args.seed):
                     splits_summary = candidate
-            except Exception:
-                pass
-    write_json(args.output / "run_metadata.json", run_metadata(
+            except (OSError, ValueError, TypeError) as error:
+                print(f"WARNING: could not read {candidate} ({error}); the run will not record split hashes",
+                      flush=True)
+    metadata = run_metadata(
         args.seed, synthetic=synthetic, window=args.window, budget=args.budget,
         cooldown=args.cooldown, feature_columns=columns,
         splits_summary=splits_summary, dvc_lock=args.dvc_lock,
-    ))
-    replay = pd.concat(predictions, ignore_index=True)
-    replay.to_csv(args.output / "held_out_predictions.csv", index=False)
-    write_report(args.output / "replay.html", replay, summary, threshold, synthetic)
-    print(f"Selected: {name}; threshold={threshold:.2f}", flush=True)
-    print(f"Replay: {(args.output / 'replay.html').resolve()}", flush=True)
+    )
+    metadata["models_config_sha256"] = model_config_sha
+    write_json(args.output / "run_metadata.json", metadata)
+    manifest = build_manifest(
+        model_name=name, threshold=threshold, cooldown=args.cooldown, window=args.window,
+        synthetic=synthetic, feature_columns=columns, metadata=metadata, validation=selected,
+        models_config_sha256=model_config_sha,
+    )
+    bundle = {
+        "model": fitted[name], "model_name": name, "feature_columns": columns,
+        "window": args.window, "threshold": threshold, "cooldown": args.cooldown,
+        "synthetic": synthetic, "manifest": manifest,
+    }
+    joblib.dump(bundle, args.output / "model.joblib")
+    write_manifest(args.output, manifest, file_sha256(args.output / "model.joblib"))
+    # Replay of validation stays only: these were already used for selection.
+    replay = apply_policy(validation_scores[name], threshold, args.cooldown)
+    replay["split"] = "validation"
+    replay.to_csv(args.output / "validation_predictions.csv", index=False)
+    write_report(args.output / "replay.html", replay,
+                 {**summary, "splits": {"validation": selected}}, threshold, synthetic)
+    print(f"Selected: {name}; threshold={threshold:.2f} "
+          f"(best by utility: {selection['best_by_utility']}; within one standard error: "
+          f"{', '.join(selection['within_one_standard_error'])})", flush=True)
+    print(f"Validation replay: {(args.output / 'replay.html').resolve()}", flush=True)
+    print("Test splits were not scored. After the model is reviewed and frozen, run `evaluate` once.", flush=True)
     if args.mlflow_uri:
         run_id = log_run(args.output, args.mlflow_uri)
         print(f"MLflow run: {run_id}", flush=True)
         if args.register_model:
             from .registry import MODEL_NAME, register_bundle
+
+            if getattr(args, "require_gates", False):
+                # Pipeline use: a model that cannot be promoted is not registered at all.
+                from .gates import require_gates
+
+                require_gates(summary, require_real_data=getattr(args, "require_real_data", False))
 
             version = register_bundle(args.output, args.mlflow_uri, run_id)
             print(f"Registered {MODEL_NAME} version {version} as @candidate "
@@ -268,23 +345,42 @@ def run_server(args):
         from .api import create_app
     except ImportError as error:
         raise RuntimeError("the API needs the serve extra; run `pip install -e .[serve]`") from error
-    from .service import ModelMismatch, ScoringService
+    from .model_source import load_serving_model
+    from .service import ModelMismatch
 
-    model_path, expected = args.model, args.model_sha256
-    if args.model_uri:
-        from .registry import resolve_model
-
-        model_path, expected, tags = resolve_model(args.model_uri, args.mlflow_uri)
-        print(f"Resolved {args.model_uri} to version {tags['version']} (bundle {expected[:12]})", flush=True)
     try:
-        service = ScoringService.from_path(model_path, expected)
+        alert_store = None
+        if args.alert_table:
+            from .alert_store import DynamoAlertStore
+
+            alert_store = DynamoAlertStore(args.alert_table)
+        elif args.alert_ledger == "memory":
+            from .alert_store import InMemoryAlertStore
+
+            alert_store = InMemoryAlertStore()
+        service, card, source = load_serving_model(
+            model=args.model, model_uri=args.model_uri, model_s3=args.model_s3,
+            expected_sha256=args.model_sha256, mlflow_uri=args.mlflow_uri,
+            allow_unverified=args.allow_unverified_model, alert_store=alert_store,
+        )
     except ModelMismatch as error:
         raise ValueError(str(error)) from error
+    print(f"Loaded {source}", flush=True)
     health = service.health()
     print(f"Serving {health['model_name']} (bundle {health['bundle_sha256'][:12]}) on {args.host}:{args.port}", flush=True)
+    if card is None:
+        print("No selection files next to the bundle; GET /model will not show the selection", flush=True)
     if health["synthetic_model"]:
         print("WARNING: synthetic fixture model; scores are meaningless", flush=True)
-    uvicorn.run(create_app(service), host=args.host, port=args.port, workers=1)
+    telemetry = None
+    if args.telemetry or args.prediction_log:
+        from .telemetry import Telemetry
+
+        telemetry = Telemetry(prediction_log=args.prediction_log, environment=args.environment)
+    uvicorn.run(create_app(service, card, telemetry), host=args.host, port=args.port, workers=1,
+                access_log=telemetry is None)
+
+
 def run_sirs_failures(args):
     """Aggregate SIRS failure patterns. Validation split only, by design."""
     cohorts, _ = load_cohorts(args)
@@ -326,7 +422,7 @@ def run_ward(args):
     cohort = cohorts[args.split]
     stays = choose_stays(cohort, args.beds, args.septic_share, args.max_hours, args.seed)
     if args.api_url:
-        frames, details = score_via_api(args.api_url, stays)
+        frames, details = score_via_api(args.api_url, stays, sign=args.sign)
         if bool(details["synthetic_model"]) != synthetic:
             raise ValueError("The API's model and the data disagree on whether they are synthetic")
         model_name, threshold, cooldown = details["model_name"], details["threshold"], details["cooldown_hours"]
@@ -376,6 +472,25 @@ def main():
             "--register-model", action="store_true",
             help="Also register the selected bundle in the MLflow registry as @candidate (needs --mlflow-uri)",
         )
+        command.add_argument("--require-gates", action="store_true",
+                             help="With --register-model: refuse to register a model that fails the promotion gates")
+        command.add_argument("--models-config", type=Path, default=None,
+                             help="Candidate models and settings (default: the packaged models.toml)")
+        command.add_argument("--include-numpy-models", action="store_true",
+                             help="Also fit the hand-written NumPy models as candidates (slower)")
+        command.add_argument("--skip-data-checks", action="store_true",
+                             help="Do not run the schema checks on a Parquet table before training")
+    evaluate = sub.add_parser(
+        "evaluate", help="Score the test splits ONCE for a frozen model (never during model development)")
+    evaluate.add_argument("--data", type=Path, required=True, help=DATA_HELP)
+    evaluate.add_argument("--splits", type=Path, default=None, help=SPLITS_HELP)
+    evaluate.add_argument("--seed", type=int, default=42, help="Only for folder data, which is re-split")
+    evaluate_source = evaluate.add_mutually_exclusive_group(required=True)
+    evaluate_source.add_argument("--model", type=Path, help="model.joblib from train (manifest.json beside it)")
+    evaluate_source.add_argument("--model-uri", default=None, help="Registered version, e.g. models:/sepsis-warning/3")
+    evaluate.add_argument("--model-sha256", default=None)
+    evaluate.add_argument("--mlflow-uri", default=DEFAULT_TRACKING_URI, help="MLflow store holding --model-uri")
+    evaluate.add_argument("--output", type=Path, required=True)
     replay = sub.add_parser("replay", help="Score a patient PSV with a saved model")
     replay.add_argument("--model", type=Path, required=True)
     replay.add_argument("--patient", type=Path, required=True)
@@ -458,23 +573,53 @@ def main():
     monitor_replay.add_argument("--model", type=Path, required=True)
     monitor_replay.add_argument("--reference", type=Path, required=True, help="monitoring_reference.json")
     monitor_replay.add_argument("--split", choices=REPLAY_SPLITS, default="external_test")
+    monitor_replay.add_argument("--after-freeze", action="store_true",
+                                help="Required for internal_test or external_test: only once the model is frozen")
     monitor_replay.add_argument("--output", type=Path, default=Path("artifacts/monitoring/replay"))
+    live = sub.add_parser("monitor-live", help="Label-free drift checks on a prediction log (from serve --prediction-log)")
+    live.add_argument("--predictions", type=Path, nargs="+", required=True, help="JSONL files or folders")
+    live.add_argument("--reference", type=Path, required=True, help="monitoring_reference.json from monitor-setup")
+    live.add_argument("--output", type=Path, default=Path("artifacts/monitoring/live"))
     serve = sub.add_parser("serve", help="Local research scoring API for a saved model (needs the serve extra)")
     serve_source = serve.add_mutually_exclusive_group(required=True)
     serve_source.add_argument("--model", type=Path, help="model.joblib produced by train/demo")
     serve_source.add_argument("--model-uri", default=None,
                               help="Registered model, e.g. models:/sepsis-warning@production (needs the tracking extra)")
-    serve.add_argument("--mlflow-uri", default=DEFAULT_TRACKING_URI, help="Local MLflow store holding --model-uri")
+    serve_source.add_argument("--model-s3", default=None,
+                              help="Published bundle, s3://bucket/models/v3/model.joblib (needs --model-sha256 and the aws extra)")
+    serve.add_argument("--mlflow-uri", default=DEFAULT_TRACKING_URI,
+                       help="MLflow store holding --model-uri: local SQLite, or the SageMaker MLflow App ARN")
     serve.add_argument("--model-sha256", default=None, help="Refuse to start unless the bundle has this SHA-256")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--alert-table", default=os.environ.get("ALERT_TABLE"),
+                       help="DynamoDB alert ledger (records delivered alerts; needs the aws extra)")
+    serve.add_argument("--alert-ledger", choices=["none", "memory"], default="none",
+                       help="memory: keep delivered alerts in this process (lost on restart)")
+    serve.add_argument("--telemetry", action="store_true",
+                       help="Structured JSON request metrics and prediction lines on stdout")
+    serve.add_argument("--prediction-log", type=Path, default=None,
+                       help="Write prediction lines to this JSONL file (input for `monitor-live`)")
+    serve.add_argument("--environment", default=os.environ.get("ENVIRONMENT_NAME", "local"))
+    serve.add_argument(
+        "--allow-unverified-model", action="store_true",
+        help="Load a --model file that has no manifest.json and no --model-sha256 (bundles you built yourself)",
+    )
     serve.add_argument(
         "--allow-non-local-host", action="store_true",
         help="Bind beyond localhost. The API has no authentication; agree this with the team first",
     )
+    publish = sub.add_parser("publish", help="Copy a registered model to S3 for an AWS deployment (aws extra)")
+    publish.add_argument("--model-uri", default="models:/sepsis-warning@production")
+    publish.add_argument("--mlflow-uri", default=DEFAULT_TRACKING_URI,
+                         help="Local SQLite store or the SageMaker MLflow App ARN")
+    publish.add_argument("--bucket", required=True, help="ArtifactBucketName output of the CloudFormation stack")
+    publish.add_argument("--prefix", default="models")
     ward = sub.add_parser("ward", help="Write an ICU ward replay page for a saved model (research demo)")
     ward.add_argument("--model", type=Path, help="model.joblib produced by train/demo (not needed with --api-url)")
     ward.add_argument("--api-url", default=None, help="Score through a running API instead, e.g. http://127.0.0.1:8000")
+    ward.add_argument("--sign", action="store_true",
+                      help="Sign --api-url requests with SigV4 (the IAM-protected Lambda URL; aws extra)")
     ward.add_argument("--data", type=Path, required=True, help=DATA_HELP)
     ward.add_argument("--splits", type=Path, help=SPLITS_HELP)
     ward.add_argument("--split", choices=SELECTION_SPLITS + HELD_OUT_SPLITS, default="validation")
@@ -492,6 +637,8 @@ def main():
     promote_cmd.add_argument("--reviewed-by", required=True, help="Name of the teammate who reviewed this version")
     promote_cmd.add_argument("--alias", default="production")
     promote_cmd.add_argument("--mlflow-uri", default=DEFAULT_TRACKING_URI)
+    promote_cmd.add_argument("--require-real-data", action="store_true",
+                             help="Also refuse a model trained on the synthetic fixture (use for real deployments)")
     args = parser.parse_args()
     try:
         if args.command in ["demo", "train"] and args.register_model and not args.mlflow_uri:
@@ -508,7 +655,7 @@ def main():
                 raise ValueError("window must be positive; budget and cooldown must be nonnegative")
             run_experiment(args)
         elif args.command == "replay":
-            bundle = joblib.load(args.model)
+            bundle = load_bundle(args.model)
             frame = read_patient(args.patient, require_labels=False)
             features = select_saved_features(build_features(frame, bundle["window"]), bundle["feature_columns"])
             table = pd.DataFrame({"patient_id": args.patient.stem, "hour": frame["ICULOS"]})
@@ -519,15 +666,53 @@ def main():
             args.output.parent.mkdir(parents=True, exist_ok=True)
             table.to_csv(args.output, index=False)
             print(args.output.resolve())
+        elif args.command == "monitor-live":
+            from .live_drift import run_live_drift
+
+            result = run_live_drift(args.predictions, args.reference, args.output)
+            print(f"Live drift status: {result['status']} ({result['rows']} predictions, {result['stays']} stays)")
+            for name, check in result.get("checks", {}).items():
+                print(f"  {name}: {check['value'] if check['value'] is None else round(check['value'], 4)} "
+                      f"[{check['status']}]")
+            if result.get("detail"):
+                print(f"  {result['detail']}")
+            print(f"Result: {(args.output / 'live_drift.json').resolve()}", flush=True)
+        elif args.command == "evaluate":
+            from .evaluation import run_frozen_evaluation
+
+            if args.model_uri:
+                require_mlflow()
+            result = run_frozen_evaluation(
+                data=args.data, splits=args.splits, seed=args.seed, output=args.output, model=args.model,
+                model_uri=args.model_uri, mlflow_uri=args.mlflow_uri, model_sha256=args.model_sha256,
+            )
+            for split, values in result["splits"].items():
+                print(f"{split}: utility {values['normalized_hourly_utility']:.3f}, AUROC {values['auroc']:.3f}, "
+                      f"false alerts/day {values['false_alert_events_per_nonseptic_patient_day']:.3f}", flush=True)
+            again = ("a synthetic fixture, so it may be repeated" if result["data_mode"] == "synthetic_fixture"
+                     else "this model cannot be evaluated again")
+            print(f"Recorded as evaluated at {result['evaluated_at']}; {again}.\n"
+                  f"Results: {args.output.resolve()}", flush=True)
         elif args.command == "serve":
             run_server(args)
+        elif args.command == "publish":
+            require_mlflow()
+            from .model_source import publish_model
+
+            published = publish_model(args.model_uri, args.mlflow_uri, args.bucket, args.prefix)
+            print(f"Published version {published['version']} to {published['model_s3_uri']}", flush=True)
+            print(f"Deploy it with: ModelS3Uri={published['model_s3_uri']} ModelSha256={published['sha256']}", flush=True)
         elif args.command == "promote":
             require_mlflow()
             from .registry import MODEL_NAME, promote
 
-            change = promote(args.mlflow_uri, args.version, args.reviewed_by, alias=args.alias)
+            change = promote(args.mlflow_uri, args.version, args.reviewed_by, alias=args.alias,
+                             require_real_data=args.require_real_data)
+            for gate in change["gates"]:
+                print(f"  gate {gate['gate']}: passed ({gate['detail']})", flush=True)
             print(f"{MODEL_NAME}@{change['alias']} -> version {change['version']} "
-                  f"(was {change['previous'] or 'unset'}; reviewed by {change['reviewed_by']})", flush=True)
+                  f"(was {change['previous'] or 'unset'}; reviewed by {change['reviewed_by']}, "
+                  f"approved as {change['approved_by']})", flush=True)
             if change["previous"]:
                 print(f"Roll back with: python -m sepsis_warning promote --version {change['previous']} "
                       f"--alias {change['alias']} --reviewed-by <name>", flush=True)
@@ -598,6 +783,7 @@ def main():
             print("Reference: A train inputs; A validation scores, alerts and performance. No test data used.")
             print(f"Monitoring reference: {(args.output / 'monitoring_reference.json').resolve()}")
         elif args.command == "monitor-replay":
+            check_split(args.split, args.after_freeze)  # M01: test splits only after the model is frozen
             summary = replay_monitoring(args.data, args.model, args.reference, args.split, args.output)
             print("Research replay only; not live clinical monitoring. No automatic retraining.")
             for family, row in summary["families"].items():

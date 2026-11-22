@@ -1,9 +1,15 @@
 # AWS research-demo infrastructure
 
 This is a **not-yet-deployed** CloudFormation prototype for the research
-scoring service. By default it follows the private design in the deck
-(slide 18) and in `docs/design/sepsis-warning-pipeline.html`, but it covers
-only part of that design so far:
+platform. The default is serverless and pay-per-use:
+
+```text
+SageMaker AI training job (spot, on demand) -> serverless SageMaker MLflow App (@candidate, @production)
+    -> published bundle in encrypted S3 -> Lambda scoring function behind an IAM-authenticated function URL
+```
+
+`ServingMode=fargate` selects the deck's always-on private design instead
+(slide 18 and `docs/design/sepsis-warning-pipeline.html`):
 
 ```text
 VPC (or, later, the hospital VPN)
@@ -12,9 +18,10 @@ VPC (or, later, the hospital VPN)
     -> encrypted S3 model artifacts and DynamoDB stay state
 ```
 
-`LoadBalancerScheme=internet-facing` switches to a public load balancer in
-public subnets, for a synthetic-only demo. The API has no authentication in
-either mode, so never send patient, personal or other sensitive data to it.
+In Fargate mode `LoadBalancerScheme=internet-facing` switches to a public load
+balancer for a synthetic-only demo, and the API has no authentication. In
+Lambda mode every request must be SigV4-signed. Never send patient, personal or
+other sensitive data to either until access and data handling are approved.
 The design targets `ap-southeast-1` (Singapore); the templates use the region
 selected for the stack and do not enforce it.
 
@@ -22,14 +29,14 @@ selected for the stack and do not enforce it.
 
 | Deck component (slide 18) | In the templates | Status |
 |---|---|---|
-| Private entry point | Internal ALB in private subnets (`LoadBalancerScheme=internal`, default) | Aligned |
+| Private entry point | Lambda mode: function URL with IAM (SigV4) authentication, not network-private. Fargate mode: internal ALB in private subnets | Partly (choose by `ServingMode`) |
 | Site-to-Site VPN from the hospital | Not created; add the VPN range to `AllowedSourceCidr` when one exists | Not built |
-| Private API Gateway with OAuth2 client credentials | Not created; the ALB is the entry point and there is no authentication | Not built |
-| ECS Fargate scoring API | `service.yaml`, private subnets, image from ECR | Aligned |
+| Private API Gateway with OAuth2 client credentials | Not created. Lambda mode authenticates callers with IAM instead; Fargate mode has no authentication | Not built |
+| ECS Fargate scoring API | `serverless.yaml` Lambda by default; `service.yaml` Fargate with `ServingMode=fargate` | Aligned (Lambda default) |
 | DynamoDB state per stay | `StateTable` in `artifacts.yaml`, task role can read and write it | Aligned (the API does not use it yet) |
 | ECR with image scanning | `EcrRepository` with scan on push | Aligned |
 | S3 for data and artifacts, KMS encryption | `ArtifactBucket` and `ArtifactKey` | Aligned |
-| SageMaker training job and managed MLflow | Not created | Not built |
+| SageMaker training job and managed MLflow | `mlops.yaml`: serverless MLflow App and training role; jobs started by `scripts/sagemaker_train.py` (spot) | Aligned (serverless) |
 | EventBridge monitoring jobs | Not created | Not built |
 | CloudWatch alarms and SNS email | `monitoring.yaml` | Aligned |
 | IAM least privilege | Scoped task and execution roles | Aligned |
@@ -41,25 +48,31 @@ selected for the stack and do not enforce it.
 
 | File | Responsibility |
 |---|---|
-| `root.yaml` | Nested-stack composition and shared parameters |
-| `network.yaml` | VPC, public/private subnets, routing, and private AWS service endpoints |
-| `artifacts.yaml` | KMS key, private/versioned S3 bucket, scanned ECR repository, encrypted DynamoDB state |
-| `service.yaml` | Load balancer (internal by default), private Fargate service, scoped task roles, and application logs |
-| `monitoring.yaml` | ECS/ALB alarms, optional email subscription, and optional AWS Budget |
+| `root.yaml` | Nested-stack composition, `ServingMode` (lambda by default, or fargate) and shared parameters |
+| `artifacts.yaml` | KMS key, private/versioned S3 bucket with lifecycle rules, three scanned ECR repositories (scoring-api, scoring-lambda, training) that keep 10 images each, encrypted on-demand DynamoDB state |
+| `mlops.yaml` | Serverless SageMaker AI **MLflow App**, the SageMaker training-job role, and a team operator policy |
+| `serverless.yaml` | **Lambda** scoring function (container image), IAM-authenticated function URL, logs (default serving mode) |
+| `network.yaml` | VPC, subnets, routing and VPC endpoints (Fargate mode only) |
+| `service.yaml` | Internal load balancer, private Fargate service, task roles, logs (Fargate mode only) |
+| `monitoring.yaml` | Lambda or ECS/ALB alarms, optional email subscription, optional AWS Budget (always created) |
+| `pipeline.yaml` | Step Functions training pipeline: train with gates → human approval → frozen evaluation → publish |
+| `observability.yaml` | Prediction log to S3 (log subscription + Firehose), daily drift Lambda, drift alarm, optional retraining trigger |
+| `apigw.yaml` | Optional private API Gateway with IAM auth, throttling and WAF in front of the Lambda |
 
-Nested stacks keep resource groups independently reviewable. The templates
-create no AWS resources until a stack is explicitly deployed. The root stack
-defaults to provisioning only the network and artifact foundation. Enable
-`DeployScoringService` only after an image has been built and pushed to the
-generated ECR repository; this avoids ECS trying to pull an image that does not
-exist yet.
+The default stack is serverless and pay-per-use: nothing bills by the hour.
+Training jobs are started on demand by `scripts/sagemaker_train.py`, and
+`scripts/aws_deploy.sh` runs the whole workflow (see
+[docs/aws-serverless.md](../../docs/aws-serverless.md), which also has a cost
+estimate). Enable `DeployScoringService` only after an image has been pushed and
+a model published to S3 (`ModelS3Uri`, `ModelSha256`).
 
 ## Local validation
 
 Run the static template linter from the repository root:
 
 ```bash
-cfn-lint -t infra/cloudformation/*.yaml --ignore-checks W3002
+pip install "cfn-lint[sam]"
+cfn-lint -t infra/cloudformation/*.yaml --regions ap-southeast-1 --ignore-checks W3002
 ```
 
 `W3002` is suppressed because the root template intentionally uses local

@@ -1,0 +1,234 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Training pipeline (Step Functions): train on spot with the data checks and promotion gates,
+  wait for a human approval, then run the one frozen evaluation and publish the approved
+  model. Nothing reaches production without the gates and an approver; nothing runs or
+  bills between executions.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+  ArtifactBucketName:
+    Type: String
+  ArtifactKeyArn:
+    Type: String
+  TrainingRepositoryUri:
+    Type: String
+  SageMakerExecutionRoleArn:
+    Type: String
+  MlflowAppArn:
+    Type: String
+  NotificationTopicArn:
+    Type: String
+  InstanceType:
+    Type: String
+    Default: ml.m5.xlarge
+  DataPrefix:
+    Type: String
+    Default: data/physionet
+  ApprovalTimeoutSeconds:
+    Type: Number
+    Default: 604800
+    Description: How long the pipeline waits for an approver (default 7 days) before it stops.
+
+Resources:
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                "aws:SourceAccount": !Ref AWS::AccountId
+      Policies:
+        - PolicyName: RunTrainingJobsAndNotify
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sagemaker:CreateTrainingJob
+                  - sagemaker:DescribeTrainingJob
+                  - sagemaker:StopTrainingJob
+                  - sagemaker:AddTags
+                Resource: !Sub "arn:${AWS::Partition}:sagemaker:${AWS::Region}:${AWS::AccountId}:training-job/sepsis-*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !Ref SageMakerExecutionRoleArn
+                Condition:
+                  StringEquals:
+                    "iam:PassedToService": sagemaker.amazonaws.com
+              # Needed for the ".sync" integration, which waits for the job through EventBridge.
+              - Effect: Allow
+                Action:
+                  - events:PutTargets
+                  - events:PutRule
+                  - events:DescribeRule
+                Resource: !Sub "arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/StepFunctionsGetEventsForSageMakerTrainingJobsRule"
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref NotificationTopicArn
+
+  TrainingPipeline:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub "${EnvironmentName}-training"
+      RoleArn: !GetAtt PipelineRole.Arn
+      DefinitionSubstitutions:
+        Bucket: !Ref ArtifactBucketName
+        KmsKey: !Ref ArtifactKeyArn
+        Repository: !Ref TrainingRepositoryUri
+        JobRole: !Ref SageMakerExecutionRoleArn
+        Mlflow: !Ref MlflowAppArn
+        Topic: !Ref NotificationTopicArn
+        InstanceType: !Ref InstanceType
+        DataPrefix: !Ref DataPrefix
+        ApprovalTimeout: !Ref ApprovalTimeoutSeconds
+      Definition:
+        Comment: >-
+          Input: {"image_tag": "training-<git sha>", "git_commit": "<sha>", "require_real_data": "true"}
+        StartAt: Train
+        States:
+          Train:
+            Type: Task
+            Resource: arn:aws:states:::sagemaker:createTrainingJob.sync
+            Parameters:
+              TrainingJobName.$: States.Format('sepsis-train-{}', $$.Execution.Name)
+              RoleArn: ${JobRole}
+              AlgorithmSpecification:
+                TrainingImage.$: States.Format('${Repository}:{}', $.image_tag)
+                TrainingInputMode: File
+              HyperParameters:
+                seed: "42"
+                register_model: "true"
+                # A model that fails the promotion gates is not registered; the job fails with the reason.
+                require_gates: "true"
+                require_real_data.$: $.require_real_data
+                mlflow_tracking_uri: ${Mlflow}
+                git_commit.$: $.git_commit
+              InputDataConfig:
+                - ChannelName: data
+                  InputMode: File
+                  DataSource:
+                    S3DataSource:
+                      S3DataType: S3Prefix
+                      S3Uri: s3://${Bucket}/${DataPrefix}/
+                      S3DataDistributionType: FullyReplicated
+              OutputDataConfig:
+                S3OutputPath: s3://${Bucket}/training-output/
+                KmsKeyId: ${KmsKey}
+              ResourceConfig:
+                InstanceType: ${InstanceType}
+                InstanceCount: 1
+                VolumeSizeInGB: 30
+                VolumeKmsKeyId: ${KmsKey}
+              EnableManagedSpotTraining: true
+              StoppingCondition:
+                MaxRuntimeInSeconds: 3600
+                MaxWaitTimeInSeconds: 7200
+            ResultSelector:
+              job.$: $.TrainingJobName
+              artifacts.$: $.ModelArtifacts.S3ModelArtifacts
+            ResultPath: $.training
+            Catch:
+              - ErrorEquals: [States.ALL]
+                ResultPath: $.error
+                Next: NotifyFailure
+            Next: WaitForApproval
+          WaitForApproval:
+            Type: Task
+            Resource: arn:aws:states:::sns:publish.waitForTaskToken
+            TimeoutSeconds: ${ApprovalTimeout}
+            Parameters:
+              TopicArn: ${Topic}
+              Subject: Sepsis model candidate awaiting review
+              Message.$: >-
+                States.Format('Training job {} passed the data checks and promotion gates and registered a
+                candidate. Review it in the MLflow UI, run "promote" (a different person from the trainer),
+                then approve with: aws stepfunctions send-task-success --task-output "{}" --task-token {}
+                To reject: aws stepfunctions send-task-failure --task-token <same token>',
+                $.training.job, $$.Task.Token)
+            ResultPath: $.approval
+            Catch:
+              - ErrorEquals: [States.ALL]
+                ResultPath: $.error
+                Next: NotifyFailure
+            Next: EvaluateAndPublish
+          EvaluateAndPublish:
+            Type: Task
+            Resource: arn:aws:states:::sagemaker:createTrainingJob.sync
+            Parameters:
+              TrainingJobName.$: States.Format('sepsis-publish-{}', $$.Execution.Name)
+              RoleArn: ${JobRole}
+              AlgorithmSpecification:
+                TrainingImage.$: States.Format('${Repository}:{}', $.image_tag)
+                TrainingInputMode: File
+              HyperParameters:
+                # The one frozen evaluation of @production, then a write-once publish to S3.
+                mode: evaluate_publish
+                mlflow_tracking_uri: ${Mlflow}
+                publish_bucket: ${Bucket}
+              InputDataConfig:
+                - ChannelName: data
+                  InputMode: File
+                  DataSource:
+                    S3DataSource:
+                      S3DataType: S3Prefix
+                      S3Uri: s3://${Bucket}/${DataPrefix}/
+                      S3DataDistributionType: FullyReplicated
+              OutputDataConfig:
+                S3OutputPath: s3://${Bucket}/training-output/
+                KmsKeyId: ${KmsKey}
+              ResourceConfig:
+                InstanceType: ${InstanceType}
+                InstanceCount: 1
+                VolumeSizeInGB: 30
+                VolumeKmsKeyId: ${KmsKey}
+              StoppingCondition:
+                MaxRuntimeInSeconds: 1800
+            ResultSelector:
+              job.$: $.TrainingJobName
+              artifacts.$: $.ModelArtifacts.S3ModelArtifacts
+            ResultPath: $.publish
+            Catch:
+              - ErrorEquals: [States.ALL]
+                ResultPath: $.error
+                Next: NotifyFailure
+            Next: NotifyPublished
+          NotifyPublished:
+            Type: Task
+            Resource: arn:aws:states:::sns:publish
+            Parameters:
+              TopicArn: ${Topic}
+              Subject: Sepsis model published
+              Message.$: >-
+                States.Format('The approved model was evaluated once on the test splits and published.
+                publish.json (S3 URI and SHA-256 to deploy) is inside {}. Deploy it with the deploy workflow
+                or "aws_deploy.sh serve".', $.publish.artifacts)
+            ResultPath: null
+            End: true
+          NotifyFailure:
+            Type: Task
+            Resource: arn:aws:states:::sns:publish
+            Parameters:
+              TopicArn: ${Topic}
+              Subject: Sepsis training pipeline stopped
+              Message.$: States.JsonToString($.error)
+            ResultPath: null
+            Next: Stopped
+          Stopped:
+            Type: Fail
+            Error: PipelineStopped
+            Cause: A step failed, a gate was not met, or the approval was rejected or timed out.
+      Tags:
+        - Key: Project
+          Value: sepsis-warning-research
+
+Outputs:
+  PipelineArn:
+    Value: !Ref TrainingPipeline

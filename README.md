@@ -5,8 +5,9 @@ The question is: **can an hourly early-warning model retain useful performance
 at another hospital under a limited notification budget?**
 
 The first version runs with an explicitly synthetic software fixture. It produces
-a model comparison, saved model, held-out predictions, and an offline patient
-replay. Synthetic scores demonstrate software behavior only. Real-data model
+a model comparison, a saved model with its manifest, and an offline patient
+replay of validation stays. Test-split results come from a separate, one-time
+`evaluate` step. Synthetic scores demonstrate software behavior only. Real-data model
 quality has not been established.
 
 ## System sketch
@@ -45,9 +46,21 @@ python -m sepsis_warning demo
 python -m unittest discover -s tests -v
 ```
 
-Open `artifacts/demo/replay.html` in a browser. Select an internal-test or
-external-test patient, play the hourly sequence, and inspect probabilities,
-threshold crossings, notifications, and retrospective positive labels.
+Open `artifacts/demo/replay.html` in a browser. Select a validation patient,
+play the hourly sequence, and inspect probabilities, threshold crossings,
+notifications, and retrospective positive labels.
+
+`train` and `demo` never score the test splits. Once a model is reviewed and
+frozen, score internal test and hospital B one time:
+
+```bash
+python -m sepsis_warning evaluate --data data/synthetic \
+  --model artifacts/demo/model.joblib --output artifacts/demo-evaluation
+```
+
+For real data this works once per model (a registered version is tagged, a
+local bundle gets `frozen_evaluation.json` beside it) and only with the split
+the model was trained on. Synthetic fixtures may be re-evaluated.
 
 The default fixture has 160 hospital-A patients and 80 hospital-B patients. It
 uses an artificial 20% patient prevalence and simplified trends, with a modest
@@ -62,6 +75,85 @@ python -m sepsis_warning demo --data data/demo2 --output artifacts/demo2 --seed 
 
 The Codex workspace currently has an already-installed `.venv`; the commands
 above are the portable setup for teammates.
+
+## Test the whole pipeline locally (macOS or Linux)
+
+Train, select, register, review, serve and call the model on synthetic data,
+then run the production-like stack. Needs Python 3.12+ (`brew install
+python@3.12` on a Mac) and, for steps 8-9, Docker Desktop.
+
+```bash
+# 1. Set up
+git clone https://github.com/low1408/SUTD-PML-team2.git && cd SUTD-PML-team2
+python3.12 -m venv .venv && source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[serve,test,tracking]"
+
+# 2. Tests (about 2-3 minutes)
+MPLBACKEND=Agg python -m unittest discover -s tests
+
+# 3. Train every candidate, select one on validation, register it as @candidate
+python -m sepsis_warning demo --output artifacts/demo \
+  --mlflow-uri sqlite:///artifacts/mlflow.db --register-model
+open artifacts/demo/replay.html                   # xdg-open on Linux
+
+# 4. Look at the selection: one parent run, one nested run per candidate (second terminal)
+mlflow ui --backend-store-uri sqlite:///artifacts/mlflow.db --port 5001   # http://127.0.0.1:5001
+
+# 5. Review, then promote the selected version to @production
+python -m sepsis_warning promote --version 1 --reviewed-by "Your Name"
+
+# 6. Serve the production model (checks its SHA-256 first); leave it running
+python -m sepsis_warning serve --model-uri models:/sepsis-warning@production
+```
+
+In another terminal (with `source .venv/bin/activate`):
+
+```bash
+# 7. Call the prediction API
+curl -s localhost:8000/health
+curl -s localhost:8000/model                      # selected model, why, all candidates (validation only)
+curl -s localhost:8000/score -H 'content-type: application/json' \
+  -d '{"patient_id": "bed-1", "hours": [{"ICULOS": 1, "HR": 92}, {"ICULOS": 2, "HR": 118, "Temp": 38.9}]}'
+curl -s localhost:8000/predict -H 'content-type: application/json' \
+  -d '{"stays": [{"patient_id": "bed-1", "hours": [{"ICULOS": 1, "HR": 92}, {"ICULOS": 2, "HR": 118, "Temp": 38.9}]},
+                 {"patient_id": "bed-2", "hours": [{"ICULOS": 1, "HR": 75}]}]}'
+open http://127.0.0.1:8000/docs                   # interactive API docs
+python scripts/latency.py --url http://127.0.0.1:8000 --output artifacts/latency.json
+python -m sepsis_warning ward --api-url http://127.0.0.1:8000 --data data/synthetic \
+  --output artifacts/ward/ward-api.html && open artifacts/ward/ward-api.html
+```
+
+Stop the server (Ctrl+C), then run the production-like stack: a load balancer,
+two Fargate-sized tasks on a private network and the `@production` model
+([docs/local-production.md](docs/local-production.md)).
+
+```bash
+# 8. Start it and run the production checks
+bash scripts/local_prod.sh up                     # http://127.0.0.1:8080
+bash scripts/local_prod.sh test
+
+# 9. Release a second version with a rolling update, then roll back
+python -m sepsis_warning train --data data/synthetic --output artifacts/run-002 --seed 43 \
+  --mlflow-uri sqlite:///artifacts/mlflow.db --register-model
+python -m sepsis_warning promote --version 2 --reviewed-by "Your Name"
+bash scripts/local_prod.sh deploy models:/sepsis-warning@production
+bash scripts/local_prod.sh deploy models:/sepsis-warning/1
+bash scripts/local_prod.sh down
+```
+
+Notes:
+
+- On an Apple Silicon Mac, `PLATFORM=linux/arm64 bash scripts/local_prod.sh up`
+  is much faster; the default `linux/amd64` matches Fargate but runs emulated.
+- `demo` needs an empty data folder; to train again on the same synthetic data
+  use `train --data data/synthetic` with a new `--output`, as in step 9.
+- To serve straight after training without the registry:
+  `serve --model artifacts/demo/model.joblib` (`/model` still shows the selection).
+- Start over: `rm -rf artifacts data/synthetic`.
+- With real data, replace step 3 with the `train` command in
+  [Run tracking and the research API](#run-tracking-and-the-research-api-l01-l02).
+  Keep real data and models out of Git.
 
 ## Use real PhysioNet data
 
@@ -273,8 +365,10 @@ is reserved for external testing. No patient-hour row split is used. ICU unit
 administrative codes and patient/hospital IDs do not enter the model.
 
 Fit preprocessing and model on training patients. Fit calibration on calibration
-patients. Choose model and probability threshold on validation patients. Freeze
-all choices before evaluating internal-test and hospital-B patients. Do not
+patients. Choose model and probability threshold on validation patients: the
+simplest model whose validation utility is within one bootstrap standard error
+of the best (candidates and settings in `src/sepsis_warning/models.toml`). Freeze
+all choices, then run `evaluate` once for internal-test and hospital-B patients. Do not
 adjust the threshold after inspecting B and still call B an untouched test.
 
 The default validation budget is **0.2 false alert events per nonseptic
@@ -350,10 +444,51 @@ registry needs a database. Details in [docs/mlflow.md](docs/mlflow.md). Add
 ```bash
 pip install -e ".[serve]"
 python -m sepsis_warning serve --model artifacts/demo/model.joblib   # 127.0.0.1:8000
+python -m sepsis_warning serve --model-uri models:/sepsis-warning@production   # or from the registry
 curl -s localhost:8000/health
 curl -s localhost:8000/score -H 'content-type: application/json' \
   -d '{"patient_id": "demo-1", "hours": [{"ICULOS": 1, "HR": 92}, {"ICULOS": 2, "HR": 101, "Temp": 38.4}]}'
 ```
+
+| Endpoint | Input | Output |
+|---|---|---|
+| `GET /health` | none | Status and the loaded bundle: model, hash, threshold, cooldown, feature count |
+| `GET /model` | none | The selected model, the selection rule and every candidate's validation metrics, the training fingerprints, and the registry version and reviewer when served from the registry. Never held-out test results |
+| `POST /score` | One stay's full history | A probability, threshold crossing and alert flag for every hour |
+| `POST /predict` | Up to 64 stays (a ward), each with its full history | For each stay, its latest hour: probability, whether it is above the threshold, `new_alert` (true only in the hour an alert fires, so hourly polling notifies once) and the last alert hour |
+
+Every scoring response names the `model_version` and `bundle_sha256` that
+produced it, gives each prediction a stable `prediction_id` and a `risk_tier`
+(low, watch, alert: a demonstration scale relative to the threshold), and lists
+`input_warnings` for values outside the review range. Impossible values (for
+example `HR` 9999, or a temperature in Fahrenheit) are rejected with 422, and a
+request over 5 MB or 8,000 hours gets 413. `X-Request-Id` is echoed.
+
+Options for `serve`:
+
+- `--alert-ledger memory` or `--alert-table <DynamoDB table>` records the
+  alerts that were raised, so the history shows what staff actually saw and a
+  model change cannot re-alert inside the cooldown. Without it the cooldown is
+  replayed from the request history.
+- `--telemetry` prints one JSON line per request (latency, hours scored,
+  alerts, errors) and per prediction (hashed stay ID, score, missing inputs;
+  never a measurement value). `--prediction-log file.jsonl` writes the
+  prediction lines to a file for `monitor-live`, which runs the label-free
+  drift checks against a `monitor-setup` reference.
+
+Client code should use `sepsis_warning.client.ScoringClient`: a 5-second
+timeout, retries with jittered backoff on 429/5xx, a circuit breaker, optional
+SigV4 signing, and `predict_or_fallback`, which returns SIRS rule results
+marked `"fallback": true` when the service is unavailable.
+
+Promotion is gated: `promote` refuses a model that does not beat the
+no-model reference and the SIRS rule at the same alert budget, exceeds the
+alert budget or is worse calibrated than the reference, and it records who
+approved. See [docs/mlflow.md](docs/mlflow.md) and the
+[audit and plan](docs/mlops-audit.md).
+
+`/docs` serves interactive documentation. `serve` refuses to start if the run
+folder's selection files describe a different model or threshold from the bundle.
 
 Each request sends one stay's full history from its first ICU hour; the server
 keeps no state between requests. Missing fields mean "not measured". Labels,
@@ -361,6 +496,41 @@ unit codes and hospital IDs are rejected (422). A bundle that does not fit the
 current feature code is refused at start-up or with 409. There is no
 authentication, so the command refuses non-local hosts unless
 `--allow-non-local-host` is passed. Scores are research output, not clinical advice.
+
+To test the AWS layout on a laptop (load balancer, two Fargate-sized tasks on
+a private network, model from the registry's `@production` alias, rolling
+deploy and rollback), see [docs/local-production.md](docs/local-production.md):
+
+```bash
+bash scripts/local_prod.sh up && bash scripts/local_prod.sh test
+```
+
+## Deploy to AWS (serverless)
+
+The default AWS design costs nothing while idle (roughly $2-5 a month plus a
+few cents per training run; estimate in the guide). Training runs as a
+SageMaker AI training job on spot capacity, runs and models are tracked in the
+serverless SageMaker AI MLflow App, and scoring runs on AWS Lambda behind an
+IAM-authenticated HTTPS URL. The same images and commands are used as locally.
+Not deployed yet: deployment needs the L06 owner's approval of account, region,
+budget and data plan. Full guide: [docs/aws-serverless.md](docs/aws-serverless.md).
+
+```bash
+pip install -e ".[aws,tracking,sagemaker]"
+bash scripts/aws_deploy.sh stack        # S3, KMS, ECR, MLflow App, roles, alarms, budget
+bash scripts/aws_deploy.sh images       # lambda, training and scoring images
+bash scripts/aws_deploy.sh data         # combined.parquet + splits.csv (after approval)
+bash scripts/aws_deploy.sh train        # SageMaker training job -> @candidate in the MLflow App
+bash scripts/aws_deploy.sh promote 1 "Reviewer Name"
+bash scripts/aws_deploy.sh publish      # @production -> S3 with its SHA-256
+bash scripts/aws_deploy.sh serve        # Lambda scoring API
+bash scripts/aws_deploy.sh call GET /model
+```
+
+Locally, the images can be built and checked without AWS:
+`docker build --target lambda .`, `docker build --target training .`, and
+`serve --model-s3 s3://.../model.joblib --model-sha256 <hash>` for a bundle
+already in S3.
 
 ## Files and artifacts
 
@@ -383,12 +553,24 @@ tests/test_monitoring.py
 The experiment creates:
 
 - `validation_models.csv`: model comparison using validation patients only.
-- `metrics.json`: validation results and selected model's held-out results.
+- `metrics.json` / `selection_metrics.json`: validation results, the selection
+  rule and which models were within one standard error. No test results.
 - `split_manifest.csv`: patient-to-split mapping and raw record SHA256 hashes.
-- `config.json`: feature names, seed, package versions, and operating settings.
-- `model.joblib`: saved calibrated classifier, features, threshold, cooldown.
-- `held_out_predictions.csv`: hourly outcomes, scores, decisions and notifications.
-- `replay.html`: self-contained interactive replay of held-out predictions.
+- `config.json`: feature names, seed, package versions, model settings and operating settings.
+- `model.joblib`: saved calibrated classifier, features, threshold, cooldown and its manifest.
+- `manifest.json`: package versions, feature-code and data hashes, validation
+  metrics and the bundle's SHA-256. `serve` and `load_bundle` verify the bundle
+  against it, and a bundle fitted under another scikit-learn minor is refused.
+- `extreme_value_review_train.csv`: review-flag counts from the data checks (Parquet input).
+- `validation_predictions.csv`, `replay.html`: hourly scores and an interactive
+  replay for validation stays only.
+
+`evaluate` creates `evaluation_metrics.json`, `held_out_predictions.csv` and a
+`replay.html` for the test splits.
+
+Training on `combined.parquet` first runs the schema checks (`pip install -e
+".[checks]"`); a dropped label or a skipped hour stops the run before fitting.
+`--include-numpy-models` adds the hand-written NumPy models as candidates.
 
 Batch inference from a saved local model:
 

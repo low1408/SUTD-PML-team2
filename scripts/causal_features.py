@@ -22,7 +22,6 @@ from sepsis_warning.features import (
 )
 from sepsis_warning.policy import benchmark_utility, utility_components
 
-
 WINDOWS = (3, 6, 12)
 
 

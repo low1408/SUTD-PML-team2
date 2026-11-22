@@ -15,8 +15,8 @@ scikit-learn's ``HistGradientBoostingClassifier``, which stays in
 
 import numpy as np
 
-from .logistic import _as_matrix, _binary_labels, _log_loss_terms, row_weights, sigmoid
 from .histogram_trees import FeatureBinner, grow_tree, splittable_features
+from .logistic import _as_matrix, _binary_labels, _log_loss_terms, row_weights, sigmoid
 
 MIN_HESSIAN = 1e-3  # a child needs at least this much Hessian mass
 

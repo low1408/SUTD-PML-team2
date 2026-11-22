@@ -1,0 +1,9 @@
+{
+  "_comment": "Parameters for the dev stack (sepsis-dev). Use a separate AWS account per environment. Budget and alert emails come from BUDGET_EMAIL / ALERT_EMAIL.",
+  "EnvironmentName": "sepsis-dev",
+  "DeploymentType": "AllAtOnce",
+  "MonthlyBudgetUsd": "20",
+  "TrainingOutputRetentionDays": "30",
+  "EnablePipeline": "true",
+  "EnableObservability": "true"
+}

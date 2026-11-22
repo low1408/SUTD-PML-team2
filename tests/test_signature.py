@@ -12,6 +12,7 @@ from sepsis_warning.signature import (
     signature_features,
 )
 
+
 def random_stay(rng, hours):
     frame = pd.DataFrame({
         "HR": rng.normal(85, 12, hours), "MAP": rng.normal(78, 10, hours),

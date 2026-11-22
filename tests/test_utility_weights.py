@@ -17,10 +17,10 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 
-from sepsis_warning.random_forest import NumpyRandomForest
 from sepsis_warning.gradient_boosting import NumpyGradientBoosting
 from sepsis_warning.logistic import NumpyLogisticRegression, sigmoid
 from sepsis_warning.policy import utility_components, utility_training_targets
+from sepsis_warning.random_forest import NumpyRandomForest
 
 
 def stay(patient_id, hours, label_from=None, first_hour=1):

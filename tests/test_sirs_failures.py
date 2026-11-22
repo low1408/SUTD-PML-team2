@@ -8,7 +8,13 @@ import pandas as pd
 from sepsis_warning.baselines import SIRS_COLUMNS
 from sepsis_warning.data import Patient
 from sepsis_warning.sirs_failures import (
-    MIN_CELL, by_hour_of_stay, caught_vs_missed, failure_tables, false_alarm_causes, hourly_table, missed_stays,
+    MIN_CELL,
+    by_hour_of_stay,
+    caught_vs_missed,
+    failure_tables,
+    false_alarm_causes,
+    hourly_table,
+    missed_stays,
 )
 
 

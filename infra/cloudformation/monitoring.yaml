@@ -1,17 +1,31 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Runtime alarms, optional email notifications, and an optional monthly AWS Budget.
+Description: Runtime alarms for the Lambda or Fargate scoring service, optional email notifications, and an optional monthly AWS Budget.
 
 Parameters:
   EnvironmentName:
     Type: String
+  ServingMode:
+    Type: String
+    Default: lambda
+    AllowedValues:
+      - lambda
+      - fargate
+      - none
+  FunctionName:
+    Type: String
+    Default: unused
   ClusterName:
     Type: String
+    Default: unused
   ServiceName:
     Type: String
+    Default: unused
   LoadBalancerFullName:
     Type: String
+    Default: unused
   TargetGroupFullName:
     Type: String
+    Default: unused
   AlertEmail:
     Type: String
     Default: ""
@@ -24,6 +38,8 @@ Parameters:
     Default: ""
 
 Conditions:
+  IsLambda: !Equals [!Ref ServingMode, lambda]
+  IsFargate: !Equals [!Ref ServingMode, fargate]
   HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
   HasMonthlyBudget: !Not [!Equals [!Ref MonthlyBudgetUsd, 0]]
   HasBudgetEmail: !Not [!Equals [!Ref BudgetEmail, ""]]
@@ -54,6 +70,7 @@ Resources:
 
   CpuAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: IsFargate
     Properties:
       AlarmDescription: Scoring service average CPU exceeds 80 percent.
       Namespace: AWS/ECS
@@ -74,6 +91,7 @@ Resources:
 
   MemoryAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: IsFargate
     Properties:
       AlarmDescription: Scoring service average memory exceeds 80 percent.
       Namespace: AWS/ECS
@@ -94,6 +112,7 @@ Resources:
 
   Target5xxAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: IsFargate
     Properties:
       AlarmDescription: The scoring service returned target-side 5xx responses.
       Namespace: AWS/ApplicationELB
@@ -114,6 +133,7 @@ Resources:
 
   TargetResponseTimeAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: IsFargate
     Properties:
       AlarmDescription: Average target response time exceeds one second.
       Namespace: AWS/ApplicationELB
@@ -134,6 +154,7 @@ Resources:
 
   UnhealthyTargetsAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: IsFargate
     Properties:
       AlarmDescription: No healthy scoring targets are registered.
       Namespace: AWS/ApplicationELB
@@ -149,6 +170,63 @@ Resources:
       Threshold: 1
       ComparisonOperator: LessThanThreshold
       TreatMissingData: breaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  LambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsLambda
+    Properties:
+      AlarmDescription: Scoring function returned errors (failed model load or unhandled exception).
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref FunctionName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  LambdaThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsLambda
+    Properties:
+      AlarmDescription: Requests were throttled by the reserved-concurrency cap.
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref FunctionName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopic
+
+  LambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsLambda
+    Properties:
+      AlarmDescription: 95th-percentile request duration above 10 seconds.
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref FunctionName
+      ExtendedStatistic: p95
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
       AlarmActions:
         - !Ref AlarmTopic
 

@@ -24,8 +24,12 @@ from sklearn.preprocessing import StandardScaler as SklearnScaler
 
 from sepsis_warning import logistic
 from sepsis_warning.logistic import (
-    MedianImputer, NumpyLogisticRegression, PlattCalibrator, StandardScaler,
-    fit_numpy_calibrated, sigmoid,
+    MedianImputer,
+    NumpyLogisticRegression,
+    PlattCalibrator,
+    StandardScaler,
+    fit_numpy_calibrated,
+    sigmoid,
 )
 
 

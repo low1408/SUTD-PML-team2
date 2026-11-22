@@ -123,23 +123,78 @@ def benchmark_utility(table: pd.DataFrame | None = None) -> dict:
     return {
         "patients": int(table["patient_id"].nunique()),
         "hours_per_patient": int(table.groupby("patient_id").size().iloc[0]),
-        "patient_hours": int(len(table)),
+        "patient_hours": len(table),
         "elapsed_seconds": float(elapsed),
         "normalized_utility": score,
     }
 
 
-def normalized_utility(table):
-    observed = best = inactive = 0.0
+def patient_utilities(table) -> np.ndarray:
+    """Per patient: utility of the decisions made, of the best decisions, and of never alerting."""
+    rows = []
     for _, patient in table.groupby("patient_id", sort=False):
         patient = patient.sort_values("hour")
         positive, negative = utility_components(patient["label"])
         decisions = patient["hourly_positive"].to_numpy()
-        observed += np.where(decisions, positive, negative).sum()
-        best += np.maximum(positive, negative).sum()
-        inactive += negative.sum()
+        rows.append((np.where(decisions, positive, negative).sum(),
+                     np.maximum(positive, negative).sum(), negative.sum()))
+    return np.asarray(rows, dtype=float).reshape(-1, 3)
+
+
+def _normalize(sums) -> float | None:
+    observed, best, inactive = sums
     denominator = best - inactive
     return float((observed - inactive) / denominator) if denominator > 0 else None
+
+
+def normalized_utility(table):
+    return _normalize(patient_utilities(table).sum(axis=0))
+
+
+def utility_interval(table, n_boot: int = 200, seed: int = 0) -> dict:
+    """Patient-level bootstrap of the normalized utility: standard error and a 95% interval.
+
+    Whole patients are resampled, because hours within a stay are not independent.
+    """
+    per_patient = patient_utilities(table)
+    rng = np.random.default_rng(seed)
+    count = len(per_patient)
+    values = []
+    for _ in range(n_boot):
+        value = _normalize(per_patient[rng.integers(0, count, count)].sum(axis=0))
+        if value is not None:
+            values.append(value)
+    if len(values) < 2:
+        return {"utility_standard_error": None, "utility_ci_low": None, "utility_ci_high": None}
+    low, high = np.percentile(values, [2.5, 97.5])
+    return {"utility_standard_error": float(np.std(values, ddof=1)),
+            "utility_ci_low": float(low), "utility_ci_high": float(high)}
+
+
+SELECTION_RULE = (
+    "One-standard-error rule on the validation split: take the model with the highest normalized "
+    "hourly utility at a threshold tuned to the false-alert budget, then choose the simplest model "
+    "whose utility is within one bootstrap standard error of it (ties: higher utility, fewer false "
+    "alerts per non-septic patient-day, higher average precision)."
+)
+
+
+def select_candidate(comparisons: list[dict], complexity: dict) -> tuple[dict, dict]:
+    """Pick a model from validation results. Returns (selected row, how it was chosen)."""
+    def rank(m):
+        return (m["normalized_hourly_utility"], -m["false_alert_events_per_nonseptic_patient_day"],
+                m["average_precision"])
+
+    best = max(comparisons, key=rank)
+    margin = best.get("utility_standard_error") or 0.0
+    floor = best["normalized_hourly_utility"] - margin
+    eligible = [m for m in comparisons if m["normalized_hourly_utility"] >= floor]
+    selected = min(eligible, key=lambda m: (complexity.get(m["model"], 99), tuple(-v for v in rank(m))))
+    return selected, {
+        "rule": SELECTION_RULE, "best_by_utility": best["model"],
+        "best_utility": best["normalized_hourly_utility"], "standard_error": margin,
+        "within_one_standard_error": [m["model"] for m in eligible], "selected": selected["model"],
+    }
 
 
 def summarize(table):
@@ -175,7 +230,7 @@ def summarize(table):
             leads.append(onset_hour - float(useful["hour"].min()))
     return {
         "patients": int(table["patient_id"].nunique()),
-        "hours": int(len(table)),
+        "hours": len(table),
         "positive_hour_fraction": float(labels.mean()),
         "average_precision": float(average_precision_score(labels, probability)) if labels.any() else None,
         "auroc": float(roc_auc_score(labels, probability)) if len(np.unique(labels)) == 2 else None,
@@ -213,7 +268,10 @@ def tune_threshold(table, budget=0.2, cooldown=6):
         if rate is not None and rate <= budget + 1e-12:
             candidates.append(metrics)
     # Tie-break toward fewer false notifications, then a higher threshold.
-    return max(candidates, key=lambda m: (
+    chosen = max(candidates, key=lambda m: (
         m["normalized_hourly_utility"],
         -m["false_alert_events_per_nonseptic_patient_day"], m["threshold"],
     ))
+    # The interval is for the chosen threshold only; it does not include threshold-tuning noise.
+    chosen.update(utility_interval(apply_policy(table, chosen["threshold"], cooldown)))
+    return chosen

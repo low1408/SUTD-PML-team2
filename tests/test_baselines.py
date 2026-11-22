@@ -6,8 +6,13 @@ import numpy as np
 import pandas as pd
 
 from sepsis_warning.baselines import (
-    BASELINE_THRESHOLD, auroc, average_precision, baseline_table,
-    hourly_classification_metrics, sirs_count, sirs_threshold_sweep,
+    BASELINE_THRESHOLD,
+    auroc,
+    average_precision,
+    baseline_table,
+    hourly_classification_metrics,
+    sirs_count,
+    sirs_threshold_sweep,
 )
 from sepsis_warning.data import DYNAMIC, STATIC, Patient
 from sepsis_warning.policy import apply_policy

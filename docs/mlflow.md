@@ -30,9 +30,9 @@ Experiment `sepsis-warning-selection`, one parent run per `train` or `demo`:
 
 Never logged: held-out test results (internal test, hospital B), patient-level
 predictions, the split manifest, replay or ward pages, raw data. `train`
-still writes held-out results to its local `metrics.json`; they are removed
-from the logged `selection_metrics.json` so model choice in MLflow only ever
-sees validation numbers.
+does not score the test splits at all, so selection runs can only hold
+validation numbers. The run also logs `manifest.json` (versions, hashes and
+validation metrics of the selected bundle).
 
 ## Registry
 
@@ -53,13 +53,21 @@ python -m sepsis_warning serve --model-uri models:/sepsis-warning@production
 | Registered model `sepsis-warning` | One version per registered bundle: calibrated model, feature list, window, threshold and cooldown. |
 | Version tags | `bundle_sha256`, model name, threshold, cooldown, window, synthetic flag, data mode, git commit, feature-contract and split hashes. |
 | `@candidate` | Set automatically to the newest registered bundle. Nothing serves it by default. |
-| `@production` | Moved only by `promote`, which needs `--reviewed-by`. The version records `production_reviewed_by`, `production_promoted_at` and `previous_production`. |
+| `@production` | Moved only by `promote`, which runs the promotion gates (`gates.py`: beats the no-model reference and SIRS at the same alert budget, within the budget, calibrated; `--require-real-data` also refuses synthetic models), needs `--reviewed-by`, and records the approver's identity (`production_approved_by`; on AWS it must differ from `registered_by`). The version records `production_reviewed_by`, `production_promoted_at` and `previous_production`. |
 | Rollback | `promote --version <previous_production> --reviewed-by <name>`; `promote` prints the exact command. |
 
 A registered version is the freeze record: it fixes the model, features,
 calibration and threshold, with hashes that show which data, split and code
-produced it. Internal-test and hospital-B evaluation should use that version
-once, in a separate `evaluation` experiment (M01), not in selection runs.
+produced it. Internal-test and hospital-B results come from that version
+once, in the separate `sepsis-warning-evaluation` experiment:
+
+```bash
+python -m sepsis_warning evaluate --data data/physionet/combined.parquet \
+  --model-uri models:/sepsis-warning/3 --output artifacts/evaluation-v3
+```
+
+The version is tagged `frozen_evaluated_at`; a second `evaluate` on it is
+refused. The split's hash must match the one in the model's manifest.
 
 The model can also be loaded with MLflow's standard loader, which checks the
 same hash and scores through the API's validation and feature code:
@@ -74,9 +82,28 @@ scores = model.predict(hourly_rows)   # columns: stay_id, ICULOS and the model i
 
 - A bundle is a Joblib file, which can run code when loaded. It is loaded only
   after its SHA-256 matches the `bundle_sha256` recorded at registration.
-- The model files are written to the local store only. Moving the store to a
-  shared or cloud server (for example SageMaker managed MLflow) needs team
-  approval and a decision on access control.
-- The Docker image does not include MLflow. To serve from the registry inside a
-  container, resolve the model first and mount the bundle, or add the
-  `tracking` extra to the image.
+- Accepted stores are local SQLite or files, a localhost server, and the
+  team's own SageMaker AI MLflow App (below). Any other hosted server needs
+  team approval first.
+- The scoring images do not include MLflow. In AWS, `publish` copies the
+  registered bundle to S3 and the service loads it with its pinned hash.
+
+## On AWS: the serverless SageMaker MLflow App
+
+`infra/cloudformation/mlops.yaml` creates a SageMaker AI **MLflow App**:
+serverless MLflow with no hourly server and no additional charge beyond S3
+storage. Its ARN is the tracking URI, so the commands above work unchanged:
+
+```bash
+pip install -e ".[tracking,sagemaker]"     # sagemaker-mlflow signs requests with your AWS credentials
+ARN=$(aws cloudformation describe-stacks --stack-name sepsis-research \
+      --query "Stacks[0].Outputs[?OutputKey=='MlflowAppArn'].OutputValue" --output text)
+python -m sepsis_warning promote --version 3 --reviewed-by "Kaiyuan" --mlflow-uri "$ARN"
+python -m sepsis_warning publish --mlflow-uri "$ARN" --bucket <ArtifactBucketName>
+aws sagemaker create-presigned-mlflow-app-url --arn "$ARN"   # link to the MLflow UI
+```
+
+SageMaker training jobs (`scripts/sagemaker_train.py`) log the selection run
+and register `@candidate` there directly. The same rules apply: validation
+metrics only, no patient-level files, and `@production` moves only through a
+named review. See [aws-serverless.md](aws-serverless.md).

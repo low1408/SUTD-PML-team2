@@ -1,0 +1,558 @@
+<title>Hour-by-Hour Features</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: an ICU flowsheet read left to right — two lanes (training, prediction) that meet at one shared feature builder. */
+:root {
+  --paper: #f5f7f8;
+  --sheet: #ffffff;
+  --ink: #15232e;
+  --muted: #566672;
+  --rule: #d5dde2;
+  --tint: #e9eff2;
+  --train: #2459a6;      /* training lane */
+  --train-soft: #e3ecf8;
+  --serve: #0f7a6c;      /* prediction lane */
+  --serve-soft: #dff1ee;
+  --shared: #b4561d;     /* the shared module */
+  --shared-soft: #fbeadf;
+  --alert: #c2283d;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f171d; --sheet: #15212a; --ink: #e4ecf0; --muted: #9aabb6; --rule: #2a3a46; --tint: #1b2a35;
+    --train: #7fa8ea; --train-soft: #1a2a42; --serve: #5cc9b8; --serve-soft: #12312d;
+    --shared: #f0965c; --shared-soft: #3a2416; --alert: #ff7a8a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f171d; --sheet: #15212a; --ink: #e4ecf0; --muted: #9aabb6; --rule: #2a3a46; --tint: #1b2a35;
+  --train: #7fa8ea; --train-soft: #1a2a42; --serve: #5cc9b8; --serve-soft: #12312d;
+  --shared: #f0965c; --shared-soft: #3a2416; --alert: #ff7a8a; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 40px 64px; display: grid; gap: 56px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(2rem, 5vw, 3.4rem); font-weight: 800; line-height: 1.05; }
+h2 { font-size: clamp(1.4rem, 3vw, 1.9rem); font-weight: 700; }
+h3 { font-size: 1.05rem; font-weight: 700; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--mono); font-size: 0.88em; }
+.eyebrow { font-family: var(--mono); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+section { display: grid; gap: 20px; }
+.lede { font-size: 1.15rem; color: var(--muted); }
+.muted { color: var(--muted); }
+.chip { display: inline-block; font-family: var(--mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.chip.t { background: var(--train-soft); color: var(--train); }
+.chip.s { background: var(--serve-soft); color: var(--serve); }
+.chip.b { background: var(--shared-soft); color: var(--shared); }
+
+/* Hero */
+.hero { display: grid; gap: 18px; }
+.thesis { display: flex; flex-wrap: wrap; gap: 10px 24px; font-family: var(--mono); font-size: 0.85rem; color: var(--muted); }
+.thesis b { color: var(--ink); font-weight: 600; }
+
+/* Pipeline lanes */
+.lanes { display: grid; grid-template-columns: 1fr 260px 1fr; gap: 18px; align-items: stretch; }
+.lane { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.lane > header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.lane.train > header h3 { color: var(--train); }
+.lane.serve > header h3 { color: var(--serve); }
+.step { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; position: relative; }
+.step .n { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-family: var(--mono); font-size: 0.75rem; font-weight: 600; color: var(--sheet); }
+.train .step .n { background: var(--train); }
+.serve .step .n { background: var(--serve); }
+.step .n.shared { background: var(--shared) !important; }
+.step:not(:last-child)::after { content: ""; position: absolute; left: 12px; top: 28px; bottom: -10px; width: 2px; background: var(--rule); }
+.step .what { min-width: 0; }
+.step .what b { display: block; font-weight: 600; }
+.step .what span { font-size: 0.9rem; color: var(--muted); }
+.step .what code { color: var(--ink); }
+.step.is-shared .what { background: var(--shared-soft); border-radius: 6px; padding: 4px 8px; margin: -4px -8px; }
+.core { display: grid; align-content: center; gap: 12px; text-align: center; padding: 18px; border-radius: 10px; border: 2px solid var(--shared); background: var(--shared-soft); }
+.core h3 { color: var(--shared); font-size: 1.15rem; }
+.core .big { font-family: var(--display); font-weight: 800; font-size: 3rem; line-height: 1; color: var(--shared); }
+.core p { font-size: 0.9rem; margin: 0 auto; }
+.core .arrows { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+
+/* Raw row -> features */
+.transform { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.4fr); gap: 18px; align-items: center; }
+.card { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 18px; min-width: 0; }
+.rawrow { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 6px; }
+.cell { font-family: var(--mono); font-size: 0.78rem; border: 1px solid var(--rule); border-radius: 4px; padding: 4px 6px; display: grid; }
+.cell small { color: var(--muted); font-size: 0.68rem; }
+.cell.empty { color: var(--muted); background: var(--tint); border-style: dashed; }
+.cell.static { border-color: var(--train); }
+.bigarrow { font-family: var(--display); font-size: 2.2rem; color: var(--shared); text-align: center; }
+.bigarrow small { display: block; font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+.feat8 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.f { border-left: 3px solid var(--shared); padding: 4px 10px; background: var(--tint); border-radius: 0 6px 6px 0; }
+.f code { font-weight: 600; color: var(--ink); }
+.f span { display: block; font-size: 0.85rem; color: var(--muted); }
+.equation { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; font-family: var(--display); font-weight: 700; font-size: clamp(1.1rem, 2.5vw, 1.5rem); }
+.equation .op { color: var(--muted); font-weight: 500; }
+.equation .res { color: var(--shared); }
+.equation small { display: block; font-family: var(--mono); font-weight: 400; font-size: 0.72rem; color: var(--muted); }
+.groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; font-size: 0.9rem; }
+.groups div { min-width: 0; }
+.groups b { display: block; font-family: var(--mono); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 4px; }
+
+/* Worked example */
+.example { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 18px; }
+.strip { display: grid; grid-template-columns: 70px repeat(8, minmax(0, 1fr)); gap: 4px; align-items: center; font-family: var(--mono); font-size: 0.8rem; }
+.strip .lab { color: var(--muted); font-size: 0.72rem; }
+.strip .h { text-align: center; color: var(--muted); }
+.strip button { font: inherit; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); border-radius: 6px; padding: 8px 0; cursor: pointer; }
+.strip button.m { background: var(--serve-soft); border-color: var(--serve); font-weight: 600; }
+.strip button.past { outline: 2px solid color-mix(in srgb, var(--shared) 45%, transparent); outline-offset: -2px; }
+.strip button.now { background: var(--shared); color: var(--sheet); border-color: var(--shared); }
+.strip button.future { opacity: 0.35; }
+.strip button:focus-visible { outline: 3px solid var(--ink); outline-offset: 1px; }
+.lacrow .cell2 { text-align: center; padding: 6px 0; border-radius: 6px; border: 1px dashed var(--rule); color: var(--muted); }
+.lacrow .cell2.m { border: 1px solid var(--serve); background: var(--serve-soft); color: var(--ink); font-weight: 600; }
+.ftable { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.ftable td { padding: 7px 4px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.ftable td:first-child { font-family: var(--mono); font-size: 0.8rem; }
+.ftable td.v { text-align: right; font-family: var(--mono); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ftable td.why { color: var(--muted); font-size: 0.82rem; }
+.readout { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
+.readout .now { font-family: var(--display); font-weight: 800; font-size: 1.6rem; color: var(--shared); }
+
+/* API timeline */
+.reqs { display: grid; gap: 8px; }
+.req { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; align-items: center; }
+.req .who { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+.bar { display: flex; gap: 3px; flex-wrap: wrap; }
+.bar i { font-style: normal; font-family: var(--mono); font-size: 0.72rem; width: 34px; text-align: center; padding: 6px 0; border-radius: 4px; background: var(--serve-soft); color: var(--serve); }
+.bar i.new { background: var(--serve); color: var(--sheet); font-weight: 600; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.callout { border-left: 4px solid var(--alert); background: var(--sheet); padding: 14px 16px; border-radius: 0 8px 8px 0; display: grid; gap: 8px; }
+.callout h3 { color: var(--alert); }
+.callout ul, .card ul { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; }
+.status { display: inline-block; font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 4px; }
+.status.live { background: var(--serve-soft); color: var(--serve); }
+.status.plan { background: var(--tint); color: var(--muted); border: 1px dashed var(--muted); }
+pre { margin: 0; background: var(--tint); border-radius: 8px; padding: 14px; overflow-x: auto; font-family: var(--mono); font-size: 0.8rem; line-height: 1.5; }
+pre .k { color: var(--serve); }
+pre .c { color: var(--muted); }
+
+/* Modules */
+.modtable-wrap { overflow-x: auto; background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; }
+.modtable { width: 100%; border-collapse: collapse; min-width: 760px; font-size: 0.9rem; }
+.modtable th { text-align: left; font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); padding: 12px 14px; border-bottom: 1px solid var(--rule); }
+.modtable td { padding: 11px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.modtable tr:last-child td { border-bottom: 0; }
+.modtable td:first-child { font-family: var(--mono); font-weight: 600; width: 190px; }
+.modtable td.fn { width: 230px; }
+.modtable td:last-child { width: 110px; }
+.modtable td.fn { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
+.modtable tr.hl td { background: var(--shared-soft); }
+.modtable .group td { background: var(--tint); font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); padding: 8px 14px; font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 0.85rem; color: var(--muted); align-items: center; }
+footer { font-size: 0.85rem; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 16px; display: grid; gap: 6px; }
+
+
+/* AWS section */
+.aws { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 14px; align-items: stretch; }
+.zone { border-radius: 10px; padding: 14px; display: grid; gap: 10px; align-content: start; min-width: 0; position: relative; }
+.zone > .zl { font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.zone.hosp { background: var(--sheet); border: 1px solid var(--rule); }
+.zone.acct { background: var(--sheet); border: 2px solid var(--muted); }
+.zone.vpc { border: 2px dashed var(--serve); background: color-mix(in srgb, var(--serve-soft) 45%, transparent); }
+.zone.priv { border: 1px solid var(--rule); background: var(--sheet); }
+.svc { border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; background: var(--sheet); display: grid; gap: 4px; min-width: 0; }
+.svc b { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.svc span { font-size: 0.84rem; color: var(--muted); }
+.svc.plan { border-style: dashed; background: transparent; }
+.svc.plan b { color: var(--muted); }
+.svc.gap { border-color: var(--alert); }
+.svc.task { border: 2px solid var(--serve); }
+.svc.task .cf { background: var(--shared-soft); border-radius: 6px; padding: 4px 8px; font-family: var(--mono); font-size: 0.78rem; color: var(--shared); }
+.awsrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.flowdown { text-align: center; font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
+.status.gap { background: color-mix(in srgb, var(--alert) 14%, transparent); color: var(--alert); }
+.journey { counter-reset: j; display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.journey li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; align-items: start; font-size: 0.92rem; }
+.journey li::before { counter-increment: j; content: counter(j); width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-family: var(--mono); font-size: 0.75rem; font-weight: 600; color: var(--sheet); background: var(--serve); }
+.journey.rel li::before { background: var(--train); }
+.banner { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 0.88rem; background: var(--tint); border-radius: 8px; padding: 10px 14px; }
+
+@media (max-width: 900px) {
+  .aws { grid-template-columns: 1fr; }
+  .lanes { grid-template-columns: 1fr; }
+  .core { order: -1; }
+  .transform, .example, .two { grid-template-columns: 1fr; }
+  .bigarrow { transform: rotate(90deg); }
+  .bigarrow small { transform: rotate(-90deg); }
+}
+@media (max-width: 520px) {
+  .feat8, .groups { grid-template-columns: 1fr; }
+  .strip { grid-template-columns: 52px repeat(8, minmax(0, 1fr)); font-size: 0.72rem; }
+  .req { grid-template-columns: 1fr; gap: 4px; }
+  .bar i { width: 28px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .strip button { transition: background 0.15s, opacity 0.15s; }
+}
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">SUTD PML Team 2 · Early sepsis warning · PhysioNet 2019</div>
+    <h1>From an hourly ICU chart to a sepsis risk score</h1>
+    <p class="lede">Training and prediction use the same function to turn raw hourly rows into features. The model never sees raw rows. It sees one row of 276 numbers per hour, each built only from that stay's hours up to now.</p>
+    <div class="thesis">
+      <span><b>1 row</b> per patient per ICU hour</span>
+      <span><b>34</b> measurements + <b>4</b> static fields in</span>
+      <span><b>276</b> features out</span>
+      <span><b>6 h</b> window · <b>0.2</b> false alerts per non-septic patient-day</span>
+    </div>
+  </header>
+
+  <!-- 1. Two lanes -->
+  <section aria-labelledby="lanes-h">
+    <div class="eyebrow">The whole path</div>
+    <h2 id="lanes-h">Two lanes, one feature builder</h2>
+    <div class="lanes">
+      <div class="lane train">
+        <header><h3>Training</h3><span class="chip t">offline · once per run</span></header>
+        <div class="step"><div class="n">1</div><div class="what"><b>Load hourly files</b><span><code>prepare.py</code> joins 40,336 PhysioNet <code>.psv</code> stays into <code>combined.parquet</code>; <code>data.py</code> checks hours are consecutive.</span></div></div>
+        <div class="step"><div class="n">2</div><div class="what"><b>Split by patient</b><span><code>splits.py</code>: hospital A 55 / 15 / 15 / 15 (train, calibration, validation, internal test); hospital B kept as the external test.</span></div></div>
+        <div class="step is-shared"><div class="n shared">3</div><div class="what"><b>Build features for every hour</b><span><code>features.py</code> <code>feature_table</code> runs <code>build_features</code> on each stay and attaches the label for that hour.</span></div></div>
+        <div class="step"><div class="n">4</div><div class="what"><b>Fit and calibrate candidates</b><span><code>modeling.py</code>: constant prior, logistic regression, random forest, gradient boosting; Platt calibration on the calibration split.</span></div></div>
+        <div class="step"><div class="n">5</div><div class="what"><b>Pick a threshold and a winner</b><span><code>policy.py</code> tunes each threshold to the alert budget on validation; the highest utility wins.</span></div></div>
+        <div class="step"><div class="n">6</div><div class="what"><b>Freeze the bundle</b><span><code>model.joblib</code>: model, the 276 column names in order, window, threshold, cooldown. <code>tracking.py</code> + <code>registry.py</code> log and register it.</span></div></div>
+      </div>
+
+      <div class="core" role="note">
+        <div class="eyebrow">Shared by both lanes</div>
+        <h3><code>build_features()</code></h3>
+        <div class="big">276</div>
+        <p>features per hour, from that stay only, using hours up to now. Never a later hour, never another patient.</p>
+        <div class="arrows">training ⇠ same code ⇢ API</div>
+      </div>
+
+      <div class="lane serve">
+        <header><h3>Prediction</h3><span class="chip s">online · every hour</span></header>
+        <div class="step"><div class="n">1</div><div class="what"><b>Hospital system sends the stay</b><span>The chart system keeps the record and sends hours 1 to now as JSON to <code>POST /score</code> or <code>/predict</code>.</span></div></div>
+        <div class="step"><div class="n">2</div><div class="what"><b>Validate the request</b><span><code>api.py</code> checks the shape; <code>service.py</code> <code>history_frame</code> rejects labels, unit codes and unknown fields (422).</span></div></div>
+        <div class="step is-shared"><div class="n shared">3</div><div class="what"><b>Build the same features</b><span><code>build_features</code> on the posted history, then <code>select_saved_features</code> keeps the bundle's 276 columns in its order.</span></div></div>
+        <div class="step"><div class="n">4</div><div class="what"><b>Score every hour</b><span>The frozen model gives a calibrated probability per hour. Medians for missing values travel inside the model.</span></div></div>
+        <div class="step"><div class="n">5</div><div class="what"><b>Apply the alert rule</b><span><code>policy.py</code> <code>apply_policy</code>: above the threshold, and no alert in the last 6 hours.</span></div></div>
+        <div class="step"><div class="n">6</div><div class="what"><b>Answer</b><span>Probability, threshold crossing and <code>new_alert</code>. Nothing is stored; the next hour's request carries the history again.</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Raw row to features -->
+  <section aria-labelledby="row-h">
+    <div class="eyebrow">What the transformation does</div>
+    <h2 id="row-h">One sparse raw row becomes 276 numbers</h2>
+    <div class="transform">
+      <div class="card">
+        <h3>Raw row at ICU hour 8</h3>
+        <p class="muted" style="font-size:.9rem;margin-block:6px 12px">Most cells are empty. Labs are taken a few times a day, vitals not always every hour.</p>
+        <div class="rawrow">
+          <div class="cell static"><small>ICULOS</small>8</div>
+          <div class="cell empty"><small>HR</small>—</div>
+          <div class="cell"><small>O2Sat</small>94</div>
+          <div class="cell empty"><small>Temp</small>—</div>
+          <div class="cell"><small>MAP</small>66</div>
+          <div class="cell"><small>Resp</small>24</div>
+          <div class="cell empty"><small>WBC</small>—</div>
+          <div class="cell"><small>Lactate</small>3.4</div>
+          <div class="cell empty"><small>…26 more</small>—</div>
+          <div class="cell static"><small>Age</small>67</div>
+          <div class="cell static"><small>Gender</small>1</div>
+          <div class="cell static"><small>HospAdmTime</small>-5</div>
+        </div>
+      </div>
+      <div class="bigarrow" aria-hidden="true">→<small>build_features</small></div>
+      <div class="card" style="display:grid;gap:12px">
+        <h3>Eight features for every measurement X</h3>
+        <div class="feat8">
+          <div class="f"><code>X__last</code><span>Last value seen, carried forward (no expiry)</span></div>
+          <div class="f"><code>X__missing_now</code><span>1 if X was not measured this hour</span></div>
+          <div class="f"><code>X__never_seen</code><span>1 if X has not been measured yet in this stay</span></div>
+          <div class="f"><code>X__hours_since_seen</code><span>ICU hours since the last measurement</span></div>
+          <div class="f"><code>X__mean_6h</code><span>Mean of measurements in the last 6 hours</span></div>
+          <div class="f"><code>X__std_6h</code><span>How much they varied</span></div>
+          <div class="f"><code>X__change_6h</code><span>Last value now minus 6 hours ago (trend)</span></div>
+          <div class="f"><code>X__observations_6h</code><span>How often X was measured (testing intensity)</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="display:grid;gap:16px">
+      <div class="equation">
+        <span>34<small>measurements</small></span><span class="op">×</span>
+        <span>8<small>features each</small></span><span class="op">+</span>
+        <span>4<small>Age, Gender, HospAdmTime, ICULOS</small></span><span class="op">=</span>
+        <span class="res">276<small>columns the model reads</small></span>
+      </div>
+      <div class="groups">
+        <div><b>8 vitals</b>HR, O2Sat, Temp, SBP, MAP, DBP, Resp, EtCO2</div>
+        <div><b>26 labs</b>Lactate, WBC, Creatinine, Platelets, Bilirubin, pH, HCO3, BUN, Glucose and 17 more</div>
+        <div><b>Never inputs</b>SepsisLabel, Unit1 / Unit2 (hospital codes), hospital ID, patient ID</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Worked example -->
+  <section aria-labelledby="ex-h">
+    <div class="eyebrow">Worked example · real output of build_features</div>
+    <h2 id="ex-h">What the model sees for heart rate, hour by hour</h2>
+    <p class="muted">Choose an hour. Highlighted hours are the ones used for that hour's features; later hours are never used.</p>
+    <div class="example">
+      <div class="card" style="display:grid;gap:14px">
+        <div class="strip" id="strip" role="group" aria-label="Choose the ICU hour">
+          <span class="lab">ICU hour</span>
+          <span class="h">1</span><span class="h">2</span><span class="h">3</span><span class="h">4</span><span class="h">5</span><span class="h">6</span><span class="h">7</span><span class="h">8</span>
+          <span class="lab">HR sent</span>
+        </div>
+        <div class="strip lacrow" aria-hidden="true">
+          <span class="lab">Lactate</span>
+          <span class="cell2">—</span><span class="cell2">—</span><span class="cell2">—</span><span class="cell2 m">2.1</span><span class="cell2">—</span><span class="cell2">—</span><span class="cell2">—</span><span class="cell2 m">3.4</span>
+        </div>
+        <div class="legend">
+          <span><span class="chip s">95</span> measured</span>
+          <span><span class="chip" style="border:1px solid var(--rule)">—</span> not measured</span>
+          <span><span class="chip b">used</span> inside the 6-hour window</span>
+        </div>
+        <p style="font-size:.9rem">At hour 8 heart rate was not measured, yet the model still knows it was 110 an hour ago, averaged 103 over six hours and rose by 22. All of that needs hours 1 to 7.</p>
+      </div>
+      <div class="card" style="display:grid;gap:10px">
+        <div class="readout"><span class="now" id="nowLabel">Hour 8</span><span class="muted" id="nowNote">HR features in this hour's row</span></div>
+        <table class="ftable" aria-live="polite">
+          <tbody id="ftable"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. How the API knows earlier hours -->
+  <section aria-labelledby="api-h">
+    <div class="eyebrow">Prediction in production</div>
+    <h2 id="api-h">How the API knows hours 1 to 7 when hour 8 arrives</h2>
+    <p>The API keeps no memory between requests. The hospital's chart system already stores the stay, so each hour it sends the <b>whole stay so far</b>. The answer for hour 8 is the last hour of that request.</p>
+    <div class="card reqs" aria-label="Requests over time">
+      <div class="req"><span class="who">06:00 request</span><div class="bar"><i>h1</i><i>h2</i><i>h3</i><i>h4</i><i>h5</i><i class="new">h6</i></div></div>
+      <div class="req"><span class="who">07:00 request</span><div class="bar"><i>h1</i><i>h2</i><i>h3</i><i>h4</i><i>h5</i><i>h6</i><i class="new">h7</i></div></div>
+      <div class="req"><span class="who">08:00 request</span><div class="bar"><i>h1</i><i>h2</i><i>h3</i><i>h4</i><i>h5</i><i>h6</i><i>h7</i><i class="new">h8</i></div></div>
+      <p class="muted" style="font-size:.85rem">Dark cell: the new hour. Scoring hours 1–8 gives the same hour-8 answer as replaying the whole stay, because hour t only uses hours up to t.</p>
+    </div>
+    <div class="two">
+      <div class="card" style="display:grid;gap:10px">
+        <h3>The request format <span class="status live">built</span></h3>
+        <pre><span class="c">POST /score   (or /predict with "stays": [...], up to 64)</span>
+{ <span class="k">"patient_id"</span>: "bed-4",
+  <span class="k">"hours"</span>: [
+    {"ICULOS": 1, "HR": 88, "Age": 67, "Gender": 1, "HospAdmTime": -5},
+    {"ICULOS": 2},
+    {"ICULOS": 3, "HR": 95},
+    <span class="c">…</span>
+    {"ICULOS": 8, "O2Sat": 94, "MAP": 66, "Lactate": 3.4}
+  ] }</pre>
+        <ul style="font-size:.9rem">
+          <li>One object per hour, <code>ICULOS</code> going up by exactly 1. An empty hour is just <code>{"ICULOS": n}</code>.</li>
+          <li>Raw values only. A missing field or <code>null</code> means not measured.</li>
+          <li>Label, unit codes, hospital ID or unknown fields get a 422.</li>
+        </ul>
+      </div>
+      <div class="callout">
+        <h3>Why the latest hour alone is not enough</h3>
+        <ul style="font-size:.92rem">
+          <li><code>X__last</code> and <code>X__hours_since_seen</code> need the last time each value was measured. For a lab that can be a day ago.</li>
+          <li><code>mean_6h</code>, <code>std_6h</code>, <code>change_6h</code> and <code>observations_6h</code> need the previous six hours.</li>
+          <li>The 6-hour alert cooldown needs to know when the last alert fired.</li>
+        </ul>
+        <h3 style="color:var(--ink);margin-top:6px">Alternative <span class="status plan">not built</span></h3>
+        <p style="font-size:.9rem">The server could keep each stay in the DynamoDB table the CloudFormation stack already creates, and the caller would send only the new hour. That needs idempotent writes, out-of-order handling, retention rules and a parity test against the stateless path.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. AWS -->
+  <section aria-labelledby="aws-h">
+    <div class="eyebrow">Target deployment · infra/cloudformation · serverless by default</div>
+    <h2 id="aws-h">How it runs in AWS, with nothing running between uses</h2>
+    <div class="banner">
+      <span class="status live">in templates</span><span>written, linted and tested locally; not yet deployed</span>
+      <span class="status plan">option / planned</span><span>available by parameter, or in the deck design only</span>
+    </div>
+
+    <div class="aws">
+      <div class="zone hosp">
+        <div class="zl">Team laptop or CI</div>
+        <div class="svc"><b>Docker images</b><span>One Dockerfile, three targets: <code>training</code>, <code>lambda</code>, <code>scoring</code>. Pushed to ECR with the git commit as the tag.</span></div>
+        <div class="svc"><b>Review and release</b><span><code>promote --reviewed-by</code> moves <code>@production</code>; <code>publish</code> copies it to S3 with its SHA-256.</span></div>
+        <div class="flowdown">↓ hospital side</div>
+        <div class="svc"><b>Chart system / interface engine</b><span>Sends each stay's hours 1 to now, signed with its IAM credentials (SigV4).</span></div>
+      </div>
+
+      <div class="zone acct">
+        <div class="zl">AWS account · ap-southeast-1 (Singapore) · pay per use</div>
+        <div class="awsrow">
+          <div class="svc task" style="border-color:var(--train)"><b>SageMaker AI training job <span class="status live">in templates</span></b>
+            <span>Started on demand by <code>scripts/sagemaker_train.py</code>: one <code>ml.m5.xlarge</code> on spot capacity, hard 1-hour limit. Runs the same <code>train</code>: 276 features, every candidate, selection on validation.</span>
+          </div>
+          <div class="svc task" style="border-color:var(--train)"><b>SageMaker AI MLflow App <span class="status live">in templates</span></b>
+            <span>Serverless MLflow, no hourly server. Each job logs a parent run plus one nested run per candidate, and registers the winner as <code>@candidate</code>.</span>
+          </div>
+        </div>
+        <div class="flowdown">↓ review, promote, publish</div>
+        <div class="awsrow">
+          <div class="svc"><b>S3 artifact bucket <span class="status live">in templates</span></b><span>KMS-encrypted and versioned. <code>data/</code> for training, <code>training-output/</code> (expires), <code>mlflow/</code>, and <code>models/vN/</code> holding each published bundle.</span></div>
+          <div class="svc"><b>ECR repositories <span class="status live">in templates</span></b><span>Training, Lambda and scoring images; scanned on push, newest 10 kept.</span></div>
+        </div>
+        <div class="flowdown">↓ ModelS3Uri + ModelSha256 pinned in the stack</div>
+        <div class="svc task"><b>Lambda scoring function <span class="status live">in templates</span></b>
+          <span>The same FastAPI app (<code>/health</code>, <code>/model</code>, <code>/score</code>, <code>/predict</code>) behind an HTTPS function URL that accepts only IAM-signed requests. It loads the bundle from S3 once per warm environment, refuses it if the hash differs, and scales to zero; optional reserved concurrency caps parallel use.</span>
+          <div class="cf">Same 276 features, same bundle, same answer as training and the local API</div>
+        </div>
+        <div class="awsrow">
+          <div class="svc"><b>CloudWatch → SNS email + Budget <span class="status live">in templates</span></b><span>Lambda errors, throttles, p95 duration; monthly budget alert from the first deploy.</span></div>
+          <div class="svc plan"><b>Fargate + internal ALB in a VPC <span class="status plan">option</span></b><span><code>ServingMode=fargate</code>: always-on private design for a hospital VPN, about $90–100 a month before traffic.</span></div>
+          <div class="svc plan"><b>VPN, OAuth2 API Gateway, EventBridge monitoring <span class="status plan">planned</span></b><span>In the deck design, not in the templates.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="two">
+      <div class="card" style="display:grid;gap:12px">
+        <h3>08:00 request for bed 4, end to end</h3>
+        <ol class="journey">
+          <li><span>The chart system signs a request with hours 1–8 for bed 4 and sends it to the function URL.</span></li>
+          <li><span>Lambda checks the IAM signature; an unsigned or unauthorised request gets 403.</span></li>
+          <li><span>A warm environment already has the model; a cold one downloads it from S3 and checks its SHA-256 first (about 2 s).</span></li>
+          <li><span>The app validates the JSON, builds the 276 features for hours 1–8, scores them and applies the alert rule.</span></li>
+          <li><span>Hour 8's probability and <code>new_alert</code> go back. Nothing is stored; logs and metrics go to CloudWatch.</span></li>
+        </ol>
+      </div>
+      <div class="card" style="display:grid;gap:12px">
+        <h3>Releasing a new model</h3>
+        <ol class="journey rel">
+          <li><span><code>aws_deploy.sh train</code>: a spot training job selects on validation and registers <code>@candidate</code> in the MLflow App.</span></li>
+          <li><span>The team compares runs in the MLflow UI; <code>promote --reviewed-by</code> moves <code>@production</code>.</span></li>
+          <li><span><code>publish</code> copies that version to <code>s3://…/models/vN/</code> and prints its SHA-256.</span></li>
+          <li><span><code>serve</code> updates the stack with the new S3 URI and hash; new Lambda environments load the new model.</span></li>
+          <li><span>Rollback: promote the previous version, publish, serve.</span></li>
+        </ol>
+        <p class="muted" style="font-size:.85rem">Roughly $2–5 a month idle plus cents per training run (estimate in <code>docs/aws-serverless.md</code>).</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. Modules -->
+  <section aria-labelledby="mod-h">
+    <div class="eyebrow">src/sepsis_warning</div>
+    <h2 id="mod-h">The modules and what each one does</h2>
+    <div class="legend"><span class="chip t">training</span><span class="chip s">prediction</span><span class="chip b">both</span></div>
+    <div class="modtable-wrap">
+      <table class="modtable">
+        <thead><tr><th>Module</th><th>Job</th><th>Key functions</th><th>Used in</th></tr></thead>
+        <tbody>
+          <tr class="group"><td colspan="4">Data in</td></tr>
+          <tr><td>data.py</td><td>Column lists (8 vitals, 26 labs, 4 static); loads stays; checks consecutive hourly <code>ICULOS</code></td><td class="fn">DYNAMIC, STATIC, load_patients, validate_record, generate_synthetic</td><td><span class="chip b">both</span></td></tr>
+          <tr><td>prepare.py</td><td>Joins the PhysioNet <code>.psv</code> files into one Parquet table</td><td class="fn">prepare</td><td><span class="chip t">training</span></td></tr>
+          <tr><td>schema.py</td><td>Data checks: types, ranges, extreme values</td><td class="fn">validate_hourly, extreme_value_counts</td><td><span class="chip t">training</span></td></tr>
+          <tr><td>splits.py</td><td>Saved patient-level split; hospital B held out as external test</td><td class="fn">write_splits, load_split_patients</td><td><span class="chip t">training</span></td></tr>
+          <tr class="group"><td colspan="4">Features</td></tr>
+          <tr class="hl"><td>features.py</td><td>The shared feature builder: 8 causal features per measurement plus static fields; keeps the saved column order</td><td class="fn">build_features, feature_table, select_saved_features</td><td><span class="chip b">both</span></td></tr>
+          <tr class="group"><td colspan="4">Models and selection</td></tr>
+          <tr><td>modeling.py</td><td>The candidates and calibration; median filling for logistic regression and random forest lives inside each model</td><td class="fn">candidate_models, fit_calibrated</td><td><span class="chip t">training</span></td></tr>
+          <tr><td>logistic.py<br>histogram_trees.py<br>random_forest.py<br>gradient_boosting.py</td><td>Hand-written NumPy versions of the models (PR #68); not yet in the candidate list</td><td class="fn">fit, predict_proba</td><td><span class="chip t">training</span></td></tr>
+          <tr><td>baselines.py</td><td>SIRS rule and metrics (AUROC, average precision) every model must beat</td><td class="fn">auroc, average_precision</td><td><span class="chip t">training</span></td></tr>
+          <tr><td>policy.py</td><td>Turns probabilities into alerts: threshold plus 6-hour cooldown; tunes the threshold to the alert budget; utility score</td><td class="fn">tune_threshold, apply_policy, summarize</td><td><span class="chip b">both</span></td></tr>
+          <tr class="group"><td colspan="4">Freeze, track, register</td></tr>
+          <tr><td>scoring.py</td><td>The frozen bundle: model, 276 column names, window, threshold, cooldown; loads it only if its SHA-256 matches</td><td class="fn">BUNDLE_KEYS, load_bundle, file_sha256</td><td><span class="chip b">both</span></td></tr>
+          <tr><td>tracking.py</td><td>MLflow selection runs (local SQLite or the SageMaker MLflow App): one nested run per candidate, validation metrics only</td><td class="fn">log_run, run_metadata</td><td><span class="chip t">training</span></td></tr>
+          <tr><td>registry.py</td><td>Registers the bundle as <code>@candidate</code>, promotes to <code>@production</code> after review, resolves it for serving</td><td class="fn">register_bundle, promote, resolve_model</td><td><span class="chip b">both</span></td></tr>
+          <tr><td>model_source.py</td><td>Publishes a registered bundle to S3; loads a bundle from a file, the registry or S3, checking its SHA-256 first</td><td class="fn">publish_model, fetch_model, load_serving_model</td><td><span class="chip b">both</span></td></tr>
+          <tr><td>sagemaker_train.py</td><td>SageMaker training-job entry point: reads <code>/opt/ml</code> hyperparameters and data, runs <code>train</code>, logs to the MLflow App</td><td class="fn">build_args, main</td><td><span class="chip t">training</span></td></tr>
+          <tr><td>model_card.py</td><td>What <code>GET /model</code> shows: the winner, the selection rule and every candidate's validation numbers</td><td class="fn">card_from_run_dir</td><td><span class="chip s">prediction</span></td></tr>
+          <tr class="group"><td colspan="4">Serving</td></tr>
+          <tr><td>service.py</td><td>Validates a request, builds features, scores every hour, applies the alert rule; no state between requests</td><td class="fn">ScoringService.history_frame, score, predict</td><td><span class="chip s">prediction</span></td></tr>
+          <tr><td>api.py</td><td>FastAPI endpoints: <code>/health</code>, <code>/model</code>, <code>/score</code>, <code>/predict</code>; 422 for bad input, 409 for a model mismatch. Same app on a laptop, Fargate and Lambda</td><td class="fn">create_app</td><td><span class="chip s">prediction</span></td></tr>
+          <tr><td>lambda_app.py</td><td>AWS Lambda entry point: the same FastAPI app behind a function URL; loads the pinned bundle from S3 on first use</td><td class="fn">handler</td><td><span class="chip s">prediction</span></td></tr>
+          <tr><td>ward.py</td><td>Ward replay page: plays stays hour by hour through the model or the API</td><td class="fn">build_payload, write_ward</td><td><span class="chip s">prediction</span></td></tr>
+          <tr><td>cli.py</td><td>Commands that tie it together: <code>prepare</code>, <code>split</code>, <code>train</code>, <code>demo</code>, <code>promote</code>, <code>publish</code>, <code>serve</code>, <code>ward</code></td><td class="fn">run_experiment, run_server</td><td><span class="chip b">both</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <span>Source: <code>src/sepsis_warning/features.py</code>, <code>service.py</code>, <code>modeling.py</code>, <code>policy.py</code> and <code>infra/cloudformation/</code> in the team repository. The heart-rate numbers are the real output of <code>build_features</code> on the example stay shown.</span>
+    <span>Research tool on a benchmark label. Not clinically validated and not for patient care.</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var hr = [88, null, 95, null, null, 104, 110, null];
+  // Real build_features output for this stay (window 6).
+  var rows = {
+    last:   [88, 88, 95, 95, 95, 104, 110, 110],
+    miss:   [0, 1, 0, 1, 1, 0, 0, 1],
+    never:  [0, 0, 0, 0, 0, 0, 0, 0],
+    since:  [0, 1, 0, 1, 2, 0, 0, 1],
+    mean:   [88, 88, 91.5, 91.5, 91.5, 95.67, 103, 103],
+    std:    [0, 0, 3.5, 3.5, 3.5, 6.55, 6.16, 6.16],
+    change: [null, null, null, null, null, null, 22, 22],
+    obs:    [1, 1, 2, 2, 2, 3, 3, 3]
+  };
+  var why = {
+    last: function (t) { var i = t; while (i >= 0 && hr[i] === null) i--; return "measured at hour " + (i + 1); },
+    miss: function (t) { return hr[t] === null ? "no HR this hour" : "HR measured this hour"; },
+    never: function () { return "HR has been measured before"; },
+    since: function (t) { return "ICU hours since the last HR"; },
+    mean: function (t) { return "values in hours " + Math.max(1, t - 4) + "–" + (t + 1); },
+    std: function () { return "spread of those values"; },
+    change: function (t) { return t < 6 ? "needs a value from 6 hours earlier; empty this early in the stay" : "110 now minus " + rows.last[t - 6] + " at hour " + (t - 5); },
+    obs: function (t) { return "HR readings in hours " + Math.max(1, t - 4) + "–" + (t + 1); }
+  };
+  var names = [["last", "HR__last"], ["miss", "HR__missing_now"], ["never", "HR__never_seen"], ["since", "HR__hours_since_seen"],
+               ["mean", "HR__mean_6h"], ["std", "HR__std_6h"], ["change", "HR__change_6h"], ["obs", "HR__observations_6h"]];
+  var strip = document.getElementById("strip");
+  var buttons = hr.map(function (v, i) {
+    var b = document.createElement("button");
+    b.type = "button"; b.id = "hour-" + (i + 1);
+    b.textContent = v === null ? "—" : v;
+    if (v !== null) b.classList.add("m");
+    b.setAttribute("aria-label", "Hour " + (i + 1) + (v === null ? ", HR not measured" : ", HR " + v));
+    b.addEventListener("click", function () { show(i); });
+    strip.appendChild(b);
+    return b;
+  });
+  function fmt(v) { return v === null ? "empty" : (Math.round(v * 100) / 100).toString(); }
+  function show(t) {
+    buttons.forEach(function (b, i) {
+      b.classList.toggle("now", i === t);
+      b.classList.toggle("past", i < t && i >= t - 5);
+      b.classList.toggle("future", i > t);
+      b.setAttribute("aria-pressed", i === t ? "true" : "false");
+    });
+    document.getElementById("nowLabel").textContent = "Hour " + (t + 1);
+    document.getElementById("nowNote").textContent = t === 7 ? "HR features in this hour's row (the API's hour-8 answer)" : "HR features in this hour's row";
+    var body = document.getElementById("ftable");
+    body.innerHTML = "";
+    names.forEach(function (n) {
+      var tr = document.createElement("tr");
+      tr.innerHTML = "<td>" + n[1] + "</td><td class=\"v\">" + fmt(rows[n[0]][t]) + "</td><td class=\"why\">" + why[n[0]](t) + "</td>";
+      body.appendChild(tr);
+    });
+  }
+  show(7);
+})();
+</script>

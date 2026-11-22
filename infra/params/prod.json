@@ -1,0 +1,9 @@
+{
+  "_comment": "Parameters for the prod stack (sepsis-prod). Use a separate AWS account per environment. Budget and alert emails come from BUDGET_EMAIL / ALERT_EMAIL.",
+  "EnvironmentName": "sepsis-prod",
+  "DeploymentType": "Canary10Percent10Minutes",
+  "MonthlyBudgetUsd": "50",
+  "TrainingOutputRetentionDays": "180",
+  "EnablePipeline": "true",
+  "EnableObservability": "true"
+}

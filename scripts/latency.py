@@ -98,6 +98,8 @@ def main():
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=Path, default=None, help="Optional JSON file for the results")
+    parser.add_argument("--max-p95-ms", type=float, default=None,
+                        help="Fail (exit 1) if any scenario's p95 is above this, or any request failed (CI budget)")
     args = parser.parse_args()
     if args.requests < 1 or args.warmup < 0 or min(args.concurrency) < 1 or min(args.hours) < 1:
         parser.error("requests, concurrency and hours must be positive; warmup must be nonnegative")
@@ -134,6 +136,13 @@ def main():
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2) + "\n")
+    if args.max_p95_ms is not None:
+        slow = [row for row in scenarios if row.get("p95_ms") is None or row["p95_ms"] > args.max_p95_ms]
+        failed = sum(row["failures"] for row in scenarios)
+        if slow or failed:
+            print(f"FAIL: {len(slow)} scenario(s) over the p95 budget of {args.max_p95_ms} ms; {failed} failed request(s)")
+            raise SystemExit(1)
+        print(f"Within the p95 budget of {args.max_p95_ms} ms")
 
 
 if __name__ == "__main__":

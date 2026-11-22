@@ -6,23 +6,37 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
-from sepsis_warning.data import (
-    DYNAMIC, STATIC, generate_synthetic, load_patients, read_patient, split_patients,
-)
 from sklearn.ensemble import HistGradientBoostingClassifier
 
+from sepsis_warning.data import (
+    DYNAMIC,
+    STATIC,
+    generate_synthetic,
+    load_patients,
+    read_patient,
+    split_patients,
+)
 from sepsis_warning.features import (
-    apply_training_fallback, build_features, features_for_windows, fit_training_fallback,
+    apply_training_fallback,
+    build_features,
+    features_for_windows,
+    fit_training_fallback,
     select_saved_features,
 )
 from sepsis_warning.modeling import candidate_models
-from sepsis_warning.prepare import prepare_parquet
 from sepsis_warning.policy import (
-    UTILITY_BENCHMARK_HOURS, UTILITY_BENCHMARK_PATIENTS, alert_events, apply_policy,
-    benchmark_utility, normalized_utility, summarize, tune_threshold, utility_benchmark_table,
+    UTILITY_BENCHMARK_HOURS,
+    UTILITY_BENCHMARK_PATIENTS,
+    alert_events,
+    apply_policy,
+    benchmark_utility,
+    normalized_utility,
+    summarize,
+    tune_threshold,
+    utility_benchmark_table,
     utility_components,
 )
+from sepsis_warning.prepare import prepare_parquet
 
 
 class ResearchInvariants(unittest.TestCase):

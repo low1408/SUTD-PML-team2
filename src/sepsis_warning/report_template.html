@@ -11,7 +11,7 @@
 <h1>Sepsis early-warning replay</h1>
 <p>Hourly predictions from a classical model, with a threshold and notification cooldown.</p>
 <div id="banner" class="banner"></div>
-<section><h2>Held-out evaluation</h2><p id="model"></p><div class="scroll"><table><thead><tr><th>Cohort</th><th>Patients</th><th>Avg. precision</th><th>Hourly utility</th><th>False alerts / nonseptic day</th><th>Early recall</th></tr></thead><tbody id="metrics"></tbody></table></div><p><small>The alarm budget is selected on hospital A validation patients. It may be exceeded in held-out cohorts. Lead time uses an inferred onset from shifted labels; retrospective labels are never prediction inputs.</small></p></section>
+<section><h2 id="evaltitle">Evaluation</h2><p id="model"></p><div class="scroll"><table><thead><tr><th>Cohort</th><th>Patients</th><th>Avg. precision</th><th>Hourly utility</th><th>False alerts / nonseptic day</th><th>Early recall</th></tr></thead><tbody id="metrics"></tbody></table></div><p><small>The alarm budget is selected on hospital A validation patients. It may be exceeded in held-out cohorts. Lead time uses an inferred onset from shifted labels; retrospective labels are never prediction inputs.</small></p></section>
 <section><h2>Patient timeline</h2><label>Patient <select id="patient"></select></label> <button id="play">Play</button><p id="status"></p><svg id="chart" viewBox="0 0 1000 340" role="img" aria-label="Predicted probability over ICU hours"></svg><label for="position">Replay hour</label><input id="position" type="range" min="0" value="0"><div class="legend"><span class="blue">Blue: predicted probability</span><span class="orange">Orange dots: alert notifications</span><span class="purple">Purple area: retrospective positive-label window</span></div><p><small>The horizontal dashed line is the selected probability threshold. Replay reveals one hour at a time; the retrospective label window is shown for evaluation context.</small></p></section>
 </main>
 <script>
@@ -19,8 +19,9 @@ const data = __PAYLOAD__;
 const $ = id => document.getElementById(id);
 const format = value => value == null ? 'n/a' : Number(value).toFixed(3);
 $('banner').textContent = data.synthetic ? 'SYNTHETIC SOFTWARE DEMO — these results are not clinical evidence.' : 'Retrospective research prototype — evaluated on PhysioNet records.';
+$('evaltitle').textContent = (data.metrics.splits && data.metrics.splits.validation) ? 'Validation results (these stays were used for selection)' : 'Held-out evaluation (frozen model, scored once)';
 $('model').textContent = `Selected model: ${data.metrics.selected_model}. Threshold: ${format(data.threshold)}.`;
-for (const [name, values] of Object.entries(data.metrics.held_out)) {
+for (const [name, values] of Object.entries(data.metrics.splits || {})) {
  const row = document.createElement('tr');
  for (const value of [name,values.patients,format(values.average_precision),format(values.normalized_hourly_utility),format(values.false_alert_events_per_nonseptic_patient_day),format(values.early_detection_recall)]) { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); }
  $('metrics').append(row);

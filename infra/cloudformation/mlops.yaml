@@ -1,0 +1,345 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Serverless MLOps: SageMaker AI MLflow App (experiment tracking and model registry,
+  no hourly server) and the role SageMaker training jobs run as. Training jobs are
+  started on demand by scripts/sagemaker_train.py; nothing here runs or bills between jobs.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+  ArtifactBucketName:
+    Type: String
+  ArtifactBucketArn:
+    Type: String
+  ArtifactKeyArn:
+    Type: String
+  TrainingRepositoryArn:
+    Type: String
+  LambdaRepositoryArn:
+    Type: String
+  ScoringRepositoryArn:
+    Type: String
+  MlflowMaintenanceWindow:
+    Type: String
+    Default: "Sun:18:00"
+    AllowedPattern: "(Mon|Tue|Wed|Thu|Fri|Sat|Sun):([01]\\d|2[0-3]):([0-5]\\d)"
+    Description: Weekly MLflow App maintenance start in UTC (Sun 18:00 UTC is Mon 02:00 in Singapore).
+
+Resources:
+  # The MLflow App reads and writes run artifacts and registered models under mlflow/.
+  MlflowAppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Lets the SageMaker MLflow App use its artifact store.
+      # Trust policy as documented for MLflow Apps (Set up IAM permissions for MLflow Apps).
+      # SageMaker uses this role for as long as the App exists; do not delete it while in use.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        # The documented App policy is s3:Get*, s3:Put*, s3:List* (plus Model Registry
+        # actions, not needed with automatic registration off), scoped here to the
+        # bucket and its mlflow/ prefix.
+        - PolicyName: MlflowArtifactStore
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:Get*
+                  - s3:Put*
+                  - s3:DeleteObject
+                  - s3:AbortMultipartUpload
+                Resource: !Sub "${ArtifactBucketArn}/mlflow/*"
+              - Effect: Allow
+                Action:
+                  - s3:List*
+                  - s3:GetBucketLocation
+                Resource: !Ref ArtifactBucketArn
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                Resource: !Ref ArtifactKeyArn
+                Condition:
+                  StringEquals:
+                    "kms:ViaService": !Sub "s3.${AWS::Region}.amazonaws.com"
+
+  # Serverless MLflow: no instance, no hourly charge; storage is the S3 prefix above.
+  MlflowApp:
+    Type: AWS::SageMaker::MlflowApp
+    Properties:
+      Name: !Sub "${EnvironmentName}-mlflow"
+      ArtifactStoreUri: !Sub "s3://${ArtifactBucketName}/mlflow"
+      RoleArn: !GetAtt MlflowAppRole.Arn
+      # The project registers models in MLflow (aliases @candidate/@production),
+      # not in the separate SageMaker Model Registry.
+      ModelRegistrationMode: AutoModelRegistrationDisabled
+      WeeklyMaintenanceWindowStart: !Ref MlflowMaintenanceWindow
+      Tags:
+        - Key: Project
+          Value: sepsis-warning-research
+
+  # SageMaker training jobs run as this role: read data/, write training-output/,
+  # pull the training image, log and register in the MLflow App.
+  SageMakerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Role for sepsis-warning SageMaker AI training jobs.
+      # Confused-deputy guard as documented for SageMaker training jobs.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                "aws:SourceArn": !Sub "arn:${AWS::Partition}:sagemaker:${AWS::Region}:${AWS::AccountId}:training-job/*"
+      Policies:
+        - PolicyName: TrainingJob
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadTrainingData
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${ArtifactBucketArn}/data/*"
+              - Sid: WriteTrainingOutput
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:AbortMultipartUpload
+                Resource: !Sub "${ArtifactBucketArn}/training-output/*"
+              # Pipeline step after approval: publish the approved bundle (write-once).
+              - Sid: PublishApprovedModel
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub "${ArtifactBucketArn}/models/*"
+              - Sid: ListBucket
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Ref ArtifactBucketArn
+              - Sid: EncryptedDataAndVolumes
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                  - kms:CreateGrant
+                  - kms:DescribeKey
+                Resource: !Ref ArtifactKeyArn
+              - Sid: PullTrainingImage
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: !Ref TrainingRepositoryArn
+              - Sid: EcrLogin
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: TrainingLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/TrainingJobs*"
+              - Sid: TrainingMetrics
+                Effect: Allow
+                Action: cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringLike:
+                    "cloudwatch:namespace": "/aws/sagemaker/*"
+              - Sid: LogToMlflowApp
+                Effect: Allow
+                Action:
+                  - sagemaker:CallMlflowAppApi
+                  - sagemaker:DescribeMlflowApp
+                Resource: !GetAtt MlflowApp.Arn
+
+  # Three duties, three policies. Attach each to different people (or roles) so the person
+  # who trains a model is not the one who approves it, and neither deploys alone.
+  # Note: IAM cannot tell MLflow API calls apart (one action covers them all), so the
+  # train/approve split inside MLflow is enforced by `promote`, which records the caller
+  # and refuses the principal that registered the version.
+  TrainerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Upload training data, build the training image, start training jobs, log to MLflow.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: UseMlflowApp
+            Effect: Allow
+            Action:
+              - sagemaker:CallMlflowAppApi
+              - sagemaker:DescribeMlflowApp
+              - sagemaker:CreatePresignedMlflowAppUrl
+            Resource: !GetAtt MlflowApp.Arn
+          - Sid: RunTrainingJobs
+            Effect: Allow
+            Action:
+              - sagemaker:CreateTrainingJob
+              - sagemaker:DescribeTrainingJob
+              - sagemaker:StopTrainingJob
+              - sagemaker:AddTags
+            Resource: !Sub "arn:${AWS::Partition}:sagemaker:${AWS::Region}:${AWS::AccountId}:training-job/sepsis-*"
+          - Sid: PassTrainingRole
+            Effect: Allow
+            Action: iam:PassRole
+            Resource: !GetAtt SageMakerExecutionRole.Arn
+            Condition:
+              StringEquals:
+                "iam:PassedToService": sagemaker.amazonaws.com
+          - Sid: UploadTrainingData
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+            Resource: !Sub "${ArtifactBucketArn}/data/*"
+          - Sid: ListArtifactBucket
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource: !Ref ArtifactBucketArn
+          - Sid: UseArtifactKey
+            Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey
+            Resource: !Ref ArtifactKeyArn
+          - Sid: PushTrainingImage
+            Effect: Allow
+            Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:BatchGetImage
+              - ecr:CompleteLayerUpload
+              - ecr:InitiateLayerUpload
+              - ecr:PutImage
+              - ecr:UploadLayerPart
+              - ecr:DescribeImages
+            Resource: !Ref TrainingRepositoryArn
+          - Sid: EcrLogin
+            Effect: Allow
+            Action: ecr:GetAuthorizationToken
+            Resource: "*"
+          - Sid: ReadStackOutputsAndTrainingLogs
+            Effect: Allow
+            Action:
+              - cloudformation:DescribeStacks
+              - logs:GetLogEvents
+              - logs:DescribeLogStreams
+            Resource:
+              - !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${EnvironmentName}*"
+              - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/sagemaker/TrainingJobs*"
+
+  ApproverPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Review runs in MLflow, promote a version, approve a waiting pipeline. Cannot train or deploy.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: UseMlflowApp
+            Effect: Allow
+            Action:
+              - sagemaker:CallMlflowAppApi
+              - sagemaker:DescribeMlflowApp
+              - sagemaker:CreatePresignedMlflowAppUrl
+            Resource: !GetAtt MlflowApp.Arn
+          - Sid: ApprovePipeline
+            Effect: Allow
+            Action:
+              - states:SendTaskSuccess
+              - states:SendTaskFailure
+              - states:DescribeExecution
+              - states:ListExecutions
+            Resource: "*"
+          - Sid: ReadStackOutputs
+            Effect: Allow
+            Action: cloudformation:DescribeStacks
+            Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${EnvironmentName}*"
+
+  DeployerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: >-
+        Publish an approved model, push serving images, call the scoring API. Reads MLflow to
+        resolve @production; `promote` still refuses a deployer who registered the version.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ReadMlflowApp
+            Effect: Allow
+            Action:
+              - sagemaker:CallMlflowAppApi
+              - sagemaker:DescribeMlflowApp
+            Resource: !GetAtt MlflowApp.Arn
+          - Sid: PublishModels
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+            Resource: !Sub "${ArtifactBucketArn}/models/*"
+          - Sid: ListArtifactBucket
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource: !Ref ArtifactBucketArn
+          - Sid: UseArtifactKey
+            Effect: Allow
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey
+            Resource: !Ref ArtifactKeyArn
+          - Sid: PushServingImages
+            Effect: Allow
+            Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:BatchGetImage
+              - ecr:CompleteLayerUpload
+              - ecr:InitiateLayerUpload
+              - ecr:PutImage
+              - ecr:UploadLayerPart
+              - ecr:DescribeImages
+            Resource:
+              - !Ref LambdaRepositoryArn
+              - !Ref ScoringRepositoryArn
+          - Sid: EcrLogin
+            Effect: Allow
+            Action: ecr:GetAuthorizationToken
+            Resource: "*"
+          - Sid: CallScoringFunctionUrl
+            Effect: Allow
+            Action:
+              - lambda:InvokeFunctionUrl
+              - lambda:InvokeFunction
+            Resource:
+              - !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${EnvironmentName}-scoring"
+              - !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${EnvironmentName}-scoring:live"
+          - Sid: ReadStackOutputs
+            Effect: Allow
+            Action: cloudformation:DescribeStacks
+            Resource: !Sub "arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${EnvironmentName}*"
+
+Outputs:
+  MlflowAppArn:
+    Description: Tracking URI for MLflow (with the sagemaker-mlflow plugin).
+    Value: !GetAtt MlflowApp.Arn
+  SageMakerExecutionRoleArn:
+    Value: !GetAtt SageMakerExecutionRole.Arn
+  TrainerPolicyArn:
+    Value: !Ref TrainerPolicy
+  ApproverPolicyArn:
+    Value: !Ref ApproverPolicy
+  DeployerPolicyArn:
+    Value: !Ref DeployerPolicy

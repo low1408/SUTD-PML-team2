@@ -1,0 +1,328 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Prediction log and live drift monitoring for the Lambda scoring service. Prediction lines
+  from the function's log go to S3 through Firehose (no code in the request path); a daily
+  Lambda compares them with the frozen monitoring reference and a CloudWatch alarm notifies
+  the owners. Optionally a drift alarm starts the training pipeline, which still stops at
+  the human approval.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+  ArtifactBucketName:
+    Type: String
+  ArtifactBucketArn:
+    Type: String
+  ArtifactKeyArn:
+    Type: String
+  FunctionLogGroupName:
+    Type: String
+  LambdaImageUri:
+    Type: String
+  AlarmTopicArn:
+    Type: String
+  DriftReferenceS3Uri:
+    Type: String
+    Default: ""
+    Description: >-
+      s3://<bucket>/monitoring/<file> written by `monitor-setup` for the deployed model.
+      Empty: only the prediction log is created, no drift job.
+  DriftSchedule:
+    Type: String
+    Default: cron(0 19 * * ? *)
+    Description: When the daily drift job runs (UTC; the default is 03:00 in Singapore).
+  PipelineArn:
+    Type: String
+    Default: ""
+  RetrainImageTag:
+    Type: String
+    Default: ""
+    Description: Training image tag used when a drift alarm starts the pipeline. Empty disables the trigger.
+
+Conditions:
+  HasReference: !Not [!Equals [!Ref DriftReferenceS3Uri, ""]]
+  RetrainOnDrift: !And
+    - !Condition HasReference
+    - !Not [!Equals [!Ref PipelineArn, ""]]
+    - !Not [!Equals [!Ref RetrainImageTag, ""]]
+
+Resources:
+  FirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: firehose.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref AWS::AccountId
+      Policies:
+        - PolicyName: WritePredictionLog
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:AbortMultipartUpload
+                Resource:
+                  - !Sub "${ArtifactBucketArn}/prediction-log/*"
+                  - !Sub "${ArtifactBucketArn}/prediction-log-errors/*"
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                Resource: !Ref ArtifactBucketArn
+              - Effect: Allow
+                Action:
+                  - kms:GenerateDataKey
+                  - kms:Decrypt
+                Resource: !Ref ArtifactKeyArn
+
+  PredictionLogStream:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamName: !Sub "${EnvironmentName}-prediction-log"
+      DeliveryStreamType: DirectPut
+      ExtendedS3DestinationConfiguration:
+        BucketARN: !Ref ArtifactBucketArn
+        RoleARN: !GetAtt FirehoseRole.Arn
+        Prefix: "prediction-log/!{timestamp:yyyy/MM/dd/HH}/"
+        ErrorOutputPrefix: "prediction-log-errors/!{firehose:error-output-type}/!{timestamp:yyyy/MM/dd}/"
+        BufferingHints:
+          IntervalInSeconds: 300
+          SizeInMBs: 5
+        # CloudWatch Logs already delivers gzip-compressed batches.
+        CompressionFormat: UNCOMPRESSED
+        EncryptionConfiguration:
+          KMSEncryptionConfig:
+            AWSKMSKeyARN: !Ref ArtifactKeyArn
+
+  LogsToFirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: logs.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringLike:
+                "aws:SourceArn": !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*"
+      Policies:
+        - PolicyName: PutToFirehose
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - firehose:PutRecord
+                  - firehose:PutRecordBatch
+                Resource: !GetAtt PredictionLogStream.Arn
+
+  # Only prediction lines leave the log: hashed stay ID, hour, score, alert, missing inputs.
+  PredictionSubscription:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref FunctionLogGroupName
+      FilterPattern: '{ $.record_type = "prediction" }'
+      DestinationArn: !GetAtt PredictionLogStream.Arn
+      RoleArn: !GetAtt LogsToFirehoseRole.Arn
+
+  DriftLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: HasReference
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-drift"
+      RetentionInDays: 90
+
+  DriftRole:
+    Type: AWS::IAM::Role
+    Condition: HasReference
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReadPredictionLogWriteResults
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource:
+                  - !Sub "${ArtifactBucketArn}/prediction-log/*"
+                  - !Sub "${ArtifactBucketArn}/monitoring/*"
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Ref ArtifactBucketArn
+                Condition:
+                  StringLike:
+                    "s3:prefix": "prediction-log/*"
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "${ArtifactBucketArn}/drift-results/*"
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                Resource: !Ref ArtifactKeyArn
+                Condition:
+                  StringEquals:
+                    "kms:ViaService": !Sub "s3.${AWS::Region}.amazonaws.com"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "${DriftLogGroup.Arn}:*"
+
+  # Same image as the scoring function, different handler. Label-free checks only.
+  DriftFunction:
+    Type: AWS::Lambda::Function
+    Condition: HasReference
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-drift"
+      Description: Daily label-free drift checks on the prediction log (score PSI, alert rate, missingness).
+      PackageType: Image
+      Code:
+        ImageUri: !Ref LambdaImageUri
+      ImageConfig:
+        Command:
+          - sepsis_warning.drift_handler.handler
+      Role: !GetAtt DriftRole.Arn
+      MemorySize: 1024
+      Timeout: 300
+      LoggingConfig:
+        LogGroup: !Ref DriftLogGroup
+        LogFormat: Text
+      Environment:
+        Variables:
+          PREDICTION_LOG_S3: !Sub "s3://${ArtifactBucketName}/prediction-log/"
+          REFERENCE_S3: !Ref DriftReferenceS3Uri
+          ENVIRONMENT_NAME: !Ref EnvironmentName
+          MPLCONFIGDIR: /tmp/matplotlib
+      Tags:
+        - Key: Project
+          Value: sepsis-warning-research
+
+  DriftScheduleRule:
+    Type: AWS::Events::Rule
+    Condition: HasReference
+    Properties:
+      Description: Run the drift job once a day on the previous day's predictions.
+      ScheduleExpression: !Ref DriftSchedule
+      Targets:
+        - Id: drift
+          Arn: !GetAtt DriftFunction.Arn
+
+  DriftSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasReference
+    Properties:
+      FunctionName: !Ref DriftFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt DriftScheduleRule.Arn
+
+  DriftAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasReference
+    Properties:
+      AlarmName: !Sub "${EnvironmentName}-drift"
+      AlarmDescription: >-
+        The daily drift job reported an alarm: scores, alert rate or input missingness moved
+        away from the frozen reference. A person reviews; nothing is retrained automatically
+        without approval. Runbook: docs/runbooks/drift-alarm.md
+      Namespace: SepsisWarning/Drift
+      MetricName: DriftLevel
+      Dimensions:
+        - Name: Environment
+          Value: !Ref EnvironmentName
+      Statistic: Maximum
+      Period: 86400
+      EvaluationPeriods: 1
+      Threshold: 2
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopicArn
+
+  DriftJobFailedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: HasReference
+    Properties:
+      AlarmDescription: The drift job itself failed, so drift is not being watched. Runbook - docs/runbooks/drift-alarm.md
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref DriftFunction
+      Statistic: Sum
+      Period: 86400
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlarmTopicArn
+
+  RetrainRole:
+    Type: AWS::IAM::Role
+    Condition: RetrainOnDrift
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StartTrainingPipeline
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource: !Ref PipelineArn
+
+  # A drift alarm starts a training run. The pipeline still needs the gates and an approver,
+  # so there is no path from an alarm to production without a person.
+  RetrainOnDriftRule:
+    Type: AWS::Events::Rule
+    Condition: RetrainOnDrift
+    Properties:
+      Description: Start the training pipeline when the drift alarm fires.
+      EventPattern:
+        source:
+          - aws.cloudwatch
+        detail-type:
+          - CloudWatch Alarm State Change
+        resources:
+          - !GetAtt DriftAlarm.Arn
+        detail:
+          state:
+            value:
+              - ALARM
+      Targets:
+        - Id: retrain
+          Arn: !Ref PipelineArn
+          RoleArn: !GetAtt RetrainRole.Arn
+          Input: !Sub '{"image_tag": "${RetrainImageTag}", "git_commit": "", "require_real_data": "true", "trigger": "drift-alarm"}'
+
+Outputs:
+  PredictionLogPrefix:
+    Value: !Sub "s3://${ArtifactBucketName}/prediction-log/"

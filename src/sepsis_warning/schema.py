@@ -24,6 +24,45 @@ REVIEW_LIMITS = {
 }
 
 
+# Values that cannot be a real measurement in the challenge's units. The scoring service
+# rejects these (often a unit or transcription error); REVIEW_LIMITS only produce warnings.
+HARD_LIMITS = {
+    # Deliberately far outside anything in PhysioNet 2019 (sample checked: HR 22-211, Temp 31-41,
+    # O2Sat 38-100, pH 6.99-7.93), so a real record is not refused; these catch unit and typing errors.
+    # FiO2 has no upper limit here: fractions and percentages both occur, so it only warns.
+    "HR": (0, 500), "O2Sat": (0, 105), "SaO2": (0, 105), "Temp": (5, 60), "SBP": (0, 500),
+    "MAP": (0, 500), "DBP": (0, 500), "Resp": (0, 300), "pH": (5.5, 9.0),
+    "Age": (0, 130), "Gender": (0, 1), "ICULOS": (1, 100000),
+}
+# Everything else measured is a concentration, count or time and cannot be negative.
+NON_NEGATIVE_EXCEPT = {"BaseExcess", "HospAdmTime"}
+MAX_WARNINGS = 20
+
+
+def range_problems(frame: pd.DataFrame) -> tuple[list[str], list[str]]:
+    """(errors, warnings) for one stay: impossible values, and values outside the review limits."""
+    errors, warnings = [], []
+    for name in frame.columns:
+        values = frame[name]
+        if name in HARD_LIMITS:
+            low, high = HARD_LIMITS[name]
+        elif name not in NON_NEGATIVE_EXCEPT and name in DYNAMIC:
+            low, high = 0, np.inf
+        else:
+            low, high = -np.inf, np.inf
+        bad = values.notna() & ((values < low) | (values > high))
+        for row in np.flatnonzero(bad.to_numpy())[:3]:
+            errors.append(f"hours[{row}].{name}={values.iloc[row]:g} is impossible (allowed {low:g} to {high:g}); "
+                          "check the unit")
+        if name in REVIEW_LIMITS and not bad.any():
+            low, high = REVIEW_LIMITS[name]
+            odd = values.notna() & ((values < low) | (values > high))
+            for row in np.flatnonzero(odd.to_numpy())[:3]:
+                warnings.append(f"hours[{row}].{name}={values.iloc[row]:g} is outside the review range "
+                                f"{low:g} to {high:g}")
+    return errors, warnings[:MAX_WARNINGS]
+
+
 def _labels_never_drop(frame: pd.DataFrame):
     if not {*KEY, "SepsisLabel"} <= set(frame):
         return True  # the missing column is reported by its own rule

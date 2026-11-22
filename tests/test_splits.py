@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from sepsis_warning.cli import run_baselines, run_experiment
 from sepsis_warning.data import generate_synthetic, load_patients, split_patients
 from sepsis_warning.prepare import prepare_parquet
-from sepsis_warning.cli import run_baselines, run_experiment
 from sepsis_warning.splits import load_split_patients, load_splits, write_splits
 
 

@@ -1,9 +1,19 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Encrypted and private locations for research model artifacts and runtime state.
+Description: Encrypted and private storage for data, model artifacts, MLflow, container images and runtime state.
 
 Parameters:
   EnvironmentName:
     Type: String
+  TrainingOutputRetentionDays:
+    Type: Number
+    Default: 180
+    MinValue: 1
+    Description: Days to keep SageMaker training outputs (the registry keeps its own copy of registered models).
+  PredictionLogRetentionDays:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    Description: Days to keep the prediction log (hashed stay IDs and scores; no measurement values).
 
 Resources:
   ArtifactKey:
@@ -82,6 +92,28 @@ Resources:
         RestrictPublicBuckets: true
       VersioningConfiguration:
         Status: Enabled
+      # Cost controls: old object versions and abandoned uploads do not pile up.
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 90
+          - Id: AbortIncompleteUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: ExpireTrainingOutputs
+            Status: Enabled
+            Prefix: training-output/
+            ExpirationInDays: !Ref TrainingOutputRetentionDays
+          - Id: ExpirePredictionLog
+            Status: Enabled
+            Prefix: prediction-log/
+            ExpirationInDays: !Ref PredictionLogRetentionDays
+      LoggingConfiguration:
+        DestinationBucketName: !Ref AccessLogBucket
+        LogFilePrefix: s3-access/
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-artifacts"
@@ -103,6 +135,72 @@ Resources:
             Condition:
               Bool:
                 "aws:SecureTransport": false
+          # Published models are write-once: an upload must be a conditional write that
+          # fails if the key exists (publish does this), and versions cannot be deleted.
+          - Sid: ModelsAreWriteOnce
+            Effect: Deny
+            Principal: "*"
+            Action: s3:PutObject
+            Resource: !Sub "${ArtifactBucket.Arn}/models/*"
+            Condition:
+              "Null":
+                "s3:if-none-match": "true"
+          - Sid: ModelsAreNotDeleted
+            Effect: Deny
+            Principal: "*"
+            Action:
+              - s3:DeleteObject
+              - s3:DeleteObjectVersion
+            Resource: !Sub "${ArtifactBucket.Arn}/models/*"
+
+  # Who read or wrote what in the artifact bucket (server access logs; 90 days).
+  AccessLogBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-${AWS::AccountId}-${AWS::Region}-logs"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireLogs
+            Status: Enabled
+            ExpirationInDays: 90
+
+  AccessLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AccessLogBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: S3ServerAccessLogs
+            Effect: Allow
+            Principal:
+              Service: logging.s3.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${AccessLogBucket.Arn}/s3-access/*"
+            Condition:
+              StringEquals:
+                "aws:SourceAccount": !Ref AWS::AccountId
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt AccessLogBucket.Arn
+              - !Sub "${AccessLogBucket.Arn}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": false
 
   EcrRepository:
     Type: AWS::ECR::Repository
@@ -116,9 +214,69 @@ Resources:
       EncryptionConfiguration:
         EncryptionType: KMS
         KmsKey: !GetAtt ArtifactKey.Arn
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules": [{"rulePriority": 1, "description": "Keep the 10 newest images",
+                      "selection": {"tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 10},
+                      "action": {"type": "expire"}}]}
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-scoring-api"
+
+  # Image for the serverless scoring function (Dockerfile target "lambda").
+  LambdaRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}/scoring-lambda"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: IMMUTABLE
+      EncryptionConfiguration:
+        EncryptionType: KMS
+        KmsKey: !GetAtt ArtifactKey.Arn
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules": [{"rulePriority": 1, "description": "Keep the 10 newest images",
+                      "selection": {"tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 10},
+                      "action": {"type": "expire"}}]}
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          # Minimum same-account policy from the Lambda container-image guide.
+          - Sid: LambdaECRImageRetrievalPolicy
+            Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - ecr:BatchGetImage
+              - ecr:GetDownloadUrlForLayer
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-scoring-lambda"
+
+  # Image for SageMaker AI training jobs (Dockerfile target "training").
+  TrainingRepository:
+    Type: AWS::ECR::Repository
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: !Sub "${EnvironmentName}/training"
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: IMMUTABLE
+      EncryptionConfiguration:
+        EncryptionType: KMS
+        KmsKey: !GetAtt ArtifactKey.Arn
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules": [{"rulePriority": 1, "description": "Keep the 10 newest images",
+                      "selection": {"tagStatus": "any", "countType": "imageCountMoreThan", "countNumber": 10},
+                      "action": {"type": "expire"}}]}
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-training"
 
   StateTable:
     Type: AWS::DynamoDB::Table
@@ -157,6 +315,14 @@ Outputs:
     Value: !GetAtt EcrRepository.Arn
   EcrRepositoryUri:
     Value: !GetAtt EcrRepository.RepositoryUri
+  LambdaRepositoryArn:
+    Value: !GetAtt LambdaRepository.Arn
+  LambdaRepositoryUri:
+    Value: !GetAtt LambdaRepository.RepositoryUri
+  TrainingRepositoryArn:
+    Value: !GetAtt TrainingRepository.Arn
+  TrainingRepositoryUri:
+    Value: !GetAtt TrainingRepository.RepositoryUri
   StateTableName:
     Value: !Ref StateTable
   StateTableArn:

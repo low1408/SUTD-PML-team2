@@ -17,7 +17,6 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-
 BASE = "https://physionet.org/files/challenge-2019/1.0.0/training/"
 
 

@@ -19,9 +19,23 @@ from sepsis_warning.data import generate_synthetic, load_patients, split_patient
 from sepsis_warning.features import META, feature_table
 from sepsis_warning.modeling import candidate_models, fit_calibrated
 from sepsis_warning.monitoring import (
-    ALERT, AGE_BINS, AGE_LABELS, FAST_STATS, FLOORS, INSUFFICIENT, SLOW_STATS, WARN,
-    MonitoringConfig, bin_shares, family_of, psi, quantile_edges, reference_from_cohorts,
-    run_monitoring, subgroup_rows, REQUIRED_COLUMNS,
+    AGE_BINS,
+    AGE_LABELS,
+    ALERT,
+    FAST_STATS,
+    FLOORS,
+    INSUFFICIENT,
+    REQUIRED_COLUMNS,
+    SLOW_STATS,
+    WARN,
+    MonitoringConfig,
+    bin_shares,
+    family_of,
+    psi,
+    quantile_edges,
+    reference_from_cohorts,
+    run_monitoring,
+    subgroup_rows,
 )
 from sepsis_warning.policy import apply_policy, tune_threshold
 from sepsis_warning.scoring import file_sha256, load_bundle, score_patients
@@ -239,11 +253,11 @@ class Monitoring(unittest.TestCase):
 
         replay = self.run_cli("monitor-replay", "--data", str(self.data), "--model", str(self.model_path),
                               "--reference", str(reference_path), "--split", "external_test",
-                              "--output", str(replay_dir))
+                              "--output", str(replay_dir), "--after-freeze")
         self.assertEqual(replay.returncode, 0, replay.stderr)
         written = {p.name for p in replay_dir.iterdir()}
         self.assertEqual(written, {"fast_windows.csv", "slow_windows.csv", "slow_subgroups.csv", "summary.json",
-                                   "monitoring_report.md", "monitoring_overview.png"})
+                                   "monitoring_report.md", "monitoring_overview.png", "cross_source.json"})
         summary = json.loads((replay_dir / "summary.json").read_text())
         self.assertFalse(summary["automatic_retraining"])
         self.assertEqual(summary["split"], "external_test")
@@ -257,7 +271,7 @@ class Monitoring(unittest.TestCase):
                 self.assertIsNone(record_id.search(path.read_text()), path.name)
 
         again = self.run_cli("monitor-replay", "--data", str(self.data), "--model", str(self.model_path),
-                             "--reference", str(reference_path), "--output", str(replay_dir))
+                             "--reference", str(reference_path), "--output", str(replay_dir), "--after-freeze")
         self.assertEqual(again.returncode, 2)
         self.assertIn("not empty", again.stderr)
 
@@ -271,7 +285,8 @@ class Monitoring(unittest.TestCase):
         with open(tampered, "ab") as handle:
             handle.write(b"\0")
         result = self.run_cli("monitor-replay", "--data", str(self.data), "--model", str(tampered),
-                              "--reference", str(reference_path), "--output", str(self.root / "guard_out"))
+                              "--reference", str(reference_path), "--split", "external_test", "--after-freeze",
+                              "--output", str(self.root / "guard_out"))
         self.assertEqual(result.returncode, 2)
         self.assertIn("SHA-256", result.stderr)
         with self.assertRaises(ValueError):

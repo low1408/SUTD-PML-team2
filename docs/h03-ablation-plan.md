@@ -1,7 +1,7 @@
 # H03: with/without ablation plan for the HMM and signature features
 
-Owner: Josh. Status: **plan only, not yet run.** Running it needs the NumPy
-logistic regression from K01. Results go on slide 14 (H06).
+Owner: Josh. Status: **script ready (PR #71), full-cohort run pending.** Run it with
+`scripts/h03_ablation.py`. Results go on slide 14 (H06).
 
 ## Question
 
@@ -27,7 +27,7 @@ identical in every arm.
 | Item | Setting |
 |---|---|
 | Split | Edwin's `splits.csv` (seed 42). Fit on `train`, report on `validation` |
-| Base features | J06 `features_for_windows`, J02 training-only fallback |
+| Base features | J06 `features_for_windows` built from the unfilled hours; leftover gaps filled inside the model with training-row medians (as `train` does). Same in all four arms |
 | HMM | Fitted once on `train` by `scripts/fit_hmm.py`: 3 states, HR, MAP, Resp, O2Sat. Frozen; only the forward filter is used for features |
 | Signature | `fit_signature_scaler` on `train` only; window 6 hours; depth 2 |
 | Model | K01 NumPy logistic regression, same regularisation, class weighting and seed |
@@ -78,10 +78,21 @@ limitations. If the temporal features do not help, the slide says so.
 
 ## Dependencies
 
-| Needed | Owner | Status on 12 Nov |
+| Needed | Owner | Status on 14 Nov |
 |---|---|---|
-| NumPy logistic regression (K01) | Kaiyuan | Not started; blocks the run |
-| Calibration and threshold (K04, K05) | Kaiyuan | Not started |
+| NumPy logistic regression (K01) | Kaiyuan | Merged (PR #68, module `logistic.py`) |
+| Calibration and threshold (K04, K05) | Kaiyuan | Platt calibration merged (PR #68); threshold uses `tune_threshold` |
 | `summarize()` metrics without scikit-learn, if the library ban covers metrics | To agree | `policy.py` still imports scikit-learn metrics |
 | HMM features (H01) | Josh | Merged (PR #60) |
-| Signature features (H02) | Josh | In review (PR #63) |
+| Signature features (H02) | Josh | Merged (PR #63) |
+| Memory for the full run | Josh | `NumpyLogisticRegression` peaks around 6 GB on the full train split; needs a machine with more than 8 GB RAM, or a float32 change to `logistic.py` |
+
+## Decision: no J02 fallback before the shared features (agreed 14 Nov)
+
+`build_features` already carries the last real reading forward and records
+`__missing_now`, `__never_seen` and `__hours_since_seen` from the original blanks.
+Filling raw values with the J02 training median first would make a missing test look
+like a real one, and those three columns would no longer mean "not done". So the shared
+features are built from the unfilled hours and the model fills what is still empty,
+using medians from training rows only. This matches `train`. `--fallback` stays as an
+optional switch and is off for the H03 run.

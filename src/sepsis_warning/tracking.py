@@ -12,13 +12,17 @@ model files. Held-out test results are left out of selection runs.
 Use a SQLite store (``sqlite:///artifacts/mlflow.db``). MLflow 3 refuses the
 old ``file:`` store, and the model registry (``registry.py``) needs a database.
 Artifacts are kept next to the database, inside the Git-ignored ``artifacts/``.
+On AWS, the team's SageMaker AI MLflow App (serverless; its ARN is the
+tracking URI) is also accepted; it needs the ``sagemaker`` extra.
 """
 
 import hashlib
 import importlib.metadata
 import json
 import math
+import os
 import platform
+import re
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
@@ -29,7 +33,8 @@ PACKAGES = ["numpy", "pandas", "scipy", "scikit-learn", "joblib", "pyarrow"]
 # replay.html and model.joblib are patient-level or executable and stay local.
 # metrics.json is logged as selection_metrics.json, without held-out results.
 LOGGABLE_ARTIFACTS = {"config.json", "selection_metrics.json", "validation_models.csv",
-                      "run_metadata.json", "candidate_details.json"}
+                      "run_metadata.json", "candidate_details.json", "manifest.json",
+                      "extreme_value_review_train.csv"}
 DEFAULT_TRACKING_URI = "sqlite:///artifacts/mlflow.db"
 SELECTION_EXPERIMENT = "sepsis-warning-selection"
 
@@ -133,7 +138,7 @@ def run_metadata(
         "cooldown_hours": int(cooldown),
         "feature_count": len(feature_columns),
         "feature_columns_sha256": hashlib.sha256("\n".join(feature_columns).encode()).hexdigest(),
-        "git_commit": git_commit(repo_root),
+        "git_commit": git_commit(repo_root) or os.environ.get("SEPSIS_GIT_COMMIT") or None,
         "python": platform.python_version(),
         "packages": package_versions(),
     }
@@ -144,8 +149,22 @@ def run_metadata(
     return metadata
 
 
+# The team's SageMaker AI MLflow App (serverless, in the team's own AWS account):
+# arn:aws:sagemaker:<region>:<account>:mlflow-app/<id>. Needs the sagemaker-mlflow plugin.
+MLFLOW_APP_ARN = re.compile(r"^arn:aws[a-z-]*:sagemaker:[a-z0-9-]+:\d{12}:mlflow-app/[A-Za-z0-9-]+$")
+
+
+def is_mlflow_app(uri: str) -> bool:
+    return bool(MLFLOW_APP_ARN.match(uri or ""))
+
+
 def check_tracking_uri(uri: str) -> str:
-    """Allow local file/sqlite stores and localhost servers only, so nothing leaves the machine."""
+    """Allow local stores, localhost servers and the team's SageMaker MLflow App.
+
+    Anything else (another hosted MLflow, a remote server) needs team approval first.
+    """
+    if is_mlflow_app(uri):
+        return uri
     parsed = urlparse(uri)
     # MLflow reads bare "databricks"/"databricks-uc" as a hosted workspace, not a folder.
     if parsed.scheme == "" and (uri.lower().startswith("databricks") or uri.lower() == "uc"):
@@ -193,8 +212,13 @@ def artifact_root(tracking_uri: str) -> str | None:
 
 
 def prepare_store(tracking_uri: str, experiment: str, mlflow_module):
-    """Point MLflow at a local store and an experiment whose artifacts stay in that folder."""
+    """Point MLflow at the store; a local store keeps its artifacts next to the database.
+
+    An MLflow App stores artifacts in its own S3 location, so nothing is set for it.
+    """
     check_tracking_uri(tracking_uri)
+    if is_mlflow_app(tracking_uri):
+        _require_sagemaker_plugin()
     if urlparse(tracking_uri).scheme == "sqlite":
         Path(tracking_uri[len("sqlite:///"):]).parent.mkdir(parents=True, exist_ok=True)
     mlflow_module.set_tracking_uri(tracking_uri)
@@ -205,6 +229,15 @@ def prepare_store(tracking_uri: str, experiment: str, mlflow_module):
             mlflow_module.get_experiment_by_name(experiment) is None:
         mlflow_module.create_experiment(experiment, artifact_location=root)
     mlflow_module.set_experiment(experiment)
+
+
+def _require_sagemaker_plugin():
+    try:
+        import sagemaker_mlflow  # noqa: F401  (registers the arn: tracking and registry stores)
+    except ImportError as error:
+        raise RuntimeError(
+            "an MLflow App URI needs the sagemaker-mlflow plugin; run `pip install -e .[sagemaker]`"
+        ) from error
 
 
 def require_mlflow():
