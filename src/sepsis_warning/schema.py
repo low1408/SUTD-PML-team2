@@ -85,7 +85,8 @@ def build_schema():
     numeric = pa.Check(lambda s: pd.api.types.is_numeric_dtype(s), name="numeric_type")
     finite = pa.Check(lambda s: ~np.isinf(pd.to_numeric(s, errors="coerce").fillna(0)), name="no_infinite_values")
     columns = {name: pa.Column(nullable=True, checks=[numeric, finite]) for name in DYNAMIC + STATIC}
-    columns["ICULOS"] = pa.Column(nullable=False, checks=[numeric, finite])
+    whole_hour = pa.Check(lambda s: (s >= 1) & (s % 1 == 0), name="whole_hour_from_1")
+    columns["ICULOS"] = pa.Column(nullable=False, checks=[numeric, finite, whole_hour])
     columns["SepsisLabel"] = pa.Column(nullable=False, checks=pa.Check.isin([0, 1]))
     columns["hospital"] = pa.Column(nullable=False, checks=pa.Check.isin(["A", "B"]))
     columns["patient_id"] = pa.Column(nullable=False)
@@ -115,7 +116,8 @@ def _summarize(failures: pd.DataFrame) -> list[str]:
     for (column, check), group in failures.groupby([failures["column"].fillna("table"), "check"], sort=True):
         if check == "column_in_dataframe":
             # Here the "failure case" is the missing column's name, not patient data.
-            lines.append(f"missing column {group['failure_case'].iloc[0]}")
+            names = ", ".join(sorted(group["failure_case"].astype(str).unique()))
+            lines.append(f"missing column {names}")
         else:
             lines.append(f"{column}: {check} ({len(group)} rows)")
     return lines

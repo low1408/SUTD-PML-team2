@@ -14,13 +14,13 @@ DVC cache and any credentials stay out of Git.
 | Second DVC remote | Private SUTD SharePoint site, reached through a synced folder and set in `.dvc/config.local` | No |
 | Hashes and pipeline steps | `dvc.yaml`, `dvc.lock` | Yes |
 
-**Access:** only Edwin can reach these remotes for now: one is a folder on one laptop, and the other is a private SharePoint site with no other members.
+**Access:** the laptop folder is Edwin's only. The private SUTD SharePoint site is shared with team members only.
 No credentials are involved.
 
-**Redistribution:** the data is not shared with anyone else. PhysioNet's project page and the
-dataset's `LICENSE.txt` state different licences (risk R14), so any shared remote
-should wait until that is settled. Teammates get the data from PhysioNet using the
-steps in the README.
+**Redistribution:** the data is shared inside the team only, never publicly. PhysioNet's
+project page (CC BY 4.0) and the dataset's `LICENSE.txt` (ODbL) both allow this with
+credit to the source (risk R14). Do not post the data or the cleaned files anywhere
+public. Teammates can also rebuild the files from PhysioNet using the steps below.
 
 DVC's anonymous usage reporting is turned off in `.dvc/config`.
 
@@ -52,8 +52,7 @@ downloaded again from PhysioNet.
 
 ## Get the data from SharePoint (once you have been added)
 
-Members will be added only after the licence question (R14) is settled. Until then,
-please use the rebuild steps below.
+Team members only. Ask Edwin for an invitation, or use the rebuild steps below.
 
 DVC cannot read the SharePoint website directly. OneDrive copies the site to a normal
 folder on your computer, and DVC reads from that folder.
@@ -139,7 +138,7 @@ On Windows Command Prompt or PowerShell, use `certutil -hashfile <file> SHA256`.
   version can write different bytes from the same data.
 - Compare with SHA-256 rather than `dvc status`. `dvc.lock` was recorded on Windows,
   so `dvc status` can report a change on another system when only line endings differ.
-- Please do not run `dvc push` or add a shared remote while risk R14 is open.
+- Keep the data inside the team: do not add a public remote or post the files publicly (R14).
 
 ## After changing the data
 

@@ -44,7 +44,7 @@ before the deck freeze, and before submission (6 Dec 2026).
 | R11 | Privacy | Public, unauthenticated scoring API if deployed | 1 | 3 | 3 Medium | leo | Accepted while undeployed |
 | R12 | Fairness | Unequal performance by sex or age; groups too small to judge | 2 | 3 | 6 High | Kaiyuan | Open |
 | R13 | Alert fatigue | Too many false alerts; budget not clinically set | 3 | 2 | 6 High | Kaiyuan | Partly mitigated |
-| R14 | Licensing | Dataset licence notices disagree (CC BY 4.0 vs ODbL) | 2 | 2 | 4 Medium | Edwin | Open |
+| R14 | Licensing | Dataset licence notices disagree (CC BY 4.0 vs ODbL) | 1 | 2 | 2 Low | Edwin | Accepted |
 | R15 | Licensing | Third-party icons and cited figures in the deck | 1 | 1 | 1 Low | Mashie | Partly mitigated |
 | R16 | Operational | Loading an untrusted or wrong model file | 1 | 3 | 3 Medium | leo | Partly mitigated |
 | R17 | Operational | Results cannot be reproduced (dependencies, no CI) | 2 | 2 | 4 Medium | leo | Open |
@@ -242,11 +242,13 @@ before the deck freeze, and before submission (6 Dec 2026).
   `physionet.org/files/challenge-2019/1.0.0/LICENSE.txt` on 2026-11-08) is
   the ODC Open Database License, which adds share-alike terms for derived
   databases. The project docs cite only CC BY 4.0.
-- **In place:** no data or derived database is redistributed; the dataset is
-  cited (Reyna et al.) in the README, data profile and deck.
-- **Remaining exposure:** unresolved which terms govern derived data. Uploading
-  derived data (DVC remote in E02, S3 in L06) should wait until this is
-  resolved, for example by asking PhysioNet or the course instructor.
+- **In place:** the data and cleaned files are shared only inside the team, through
+  the private SUTD SharePoint site (decided by Edwin, 2026-11-22). Both licences allow
+  this with credit, and ODbL's share-alike terms apply to public use, which this is not.
+  Nothing is posted publicly; the dataset is cited (Reyna et al.) in the README, data
+  profile and deck.
+- **Remaining exposure:** any public release of derived data (for example S3 in L06
+  made public) would still need the licence question answered first.
 
 ### R15. Third-party icons and cited figures in the deck (Licensing)
 

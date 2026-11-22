@@ -15,7 +15,7 @@
 <h3 style="font-size:32px;font-weight:600;color:#2c6285">Split by stay, stratified</h3>
 <p style="font-size:28px;line-height:1.45">Hospital A: 55% train · 15% calibration · 15% validation · 15% internal test.</p>
 <p style="font-size:28px;line-height:1.45">Hospital B: all 20,000 stays held out as the unseen hospital, scored once after the freeze.</p>
-<p style="font-size:28px;line-height:1.45">Model and feature choices: 5-fold CV grouped by stay, inside train. Validation sets the threshold.</p>
+<p style="font-size:28px;line-height:1.45">Model and feature choices: made on the validation split, with each stay in one split only. Validation also sets the threshold.</p>
 <h3 style="font-size:32px;font-weight:600;color:#2c6285">Leakage guards</h3>
 <p style="font-size:28px;line-height:1.45">No stay in two splits. Hour t sees only hours ≤ t. Fill values fitted on train only.</p>
 </div>

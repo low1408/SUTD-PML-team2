@@ -38,6 +38,19 @@ class HardRules(unittest.TestCase):
     def test_missing_column_fails(self):
         self.assert_fails(stay().drop(columns=["Lactate"]), "missing column Lactate")
 
+    def test_every_missing_column_is_named(self):
+        self.assert_fails(stay().drop(columns=["Lactate", "HR", "Temp"]), "missing column HR, Lactate, Temp")
+
+    def test_hour_below_1_fails(self):
+        frame = stay()
+        frame["ICULOS"] = [-1.0, 0.0, 1.0]
+        self.assert_fails(frame, r"ICULOS: whole_hour_from_1 \(2 rows\)")
+
+    def test_part_hour_fails(self):
+        frame = stay()
+        frame["ICULOS"] = [1.5, 2.5, 3.5]
+        self.assert_fails(frame, r"ICULOS: whole_hour_from_1 \(3 rows\)")
+
     def test_text_in_a_number_column_fails(self):
         frame = stay()
         frame["HR"] = frame["HR"].astype(object)

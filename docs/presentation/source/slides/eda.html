@@ -23,6 +23,6 @@
 <p style="font-size:26px;line-height:1.4"><b>MAP runs higher at B</b> (median 84 vs 77 mmHg).</p>
 </div>
 </div>
-<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#5b6870">A = training split only (11,183 stays); B shown for inputs only, no labels · 9</p>
-<aside>Only hospital A's training split is explored, so nothing here peeks at A's test stays. Hospital B appears only through its inputs (missingness and vitals), which a deployed system would see anyway; B's labels stay untouched until the final test.</aside>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#5b6870">A = training split only (11,183 stays); B on this slide: inputs only · 9</p>
+<aside>Only hospital A's training split is explored, so nothing here peeks at A's test stays. Hospital B appears only through its inputs (missingness and vitals), which a deployed system would see anyway; B's labels are counted only to describe the hospital (docs/hospital-a-vs-b.md); they are never used to train, tune or pick a threshold.</aside>
 </section>
