@@ -55,7 +55,7 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def package_versions(names=PACKAGES) -> dict:
+def package_versions(names=tuple(PACKAGES)) -> dict:
     versions = {}
     for name in names:
         try:
@@ -261,7 +261,7 @@ def prepare_store(tracking_uri: str, experiment: str, mlflow_module):
 
 def _require_sagemaker_plugin():
     try:
-        import sagemaker_mlflow  # noqa: F401  (registers the arn: tracking and registry stores)
+        import sagemaker_mlflow  # noqa: F401  # pylint: disable=unused-import
     except ImportError as error:
         raise RuntimeError(
             "an MLflow App URI needs the sagemaker-mlflow plugin; run `pip install -e .[sagemaker]`"

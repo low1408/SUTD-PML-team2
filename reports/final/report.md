@@ -8,9 +8,19 @@ evidence listed under it. Do not paste numbers that were not produced by the com
 
 ## 1. Executive Summary (at most one page)
 
-TODO (leo): problem in one sentence, approach in two, the headline result against the SIRS baseline
-(precision, recall, F1, hourly utility at 0.2 false alerts per non-septic patient-day) with its interval, the
-external hospital B result, and the main limitation. Write this last.
+We warn ICU teams early that a patient is likely to develop sepsis, using hourly vital signs and labs from the
+PhysioNet/CinC 2019 challenge. A random forest (276 causal features per hour, Platt-calibrated, threshold 0.05, 6 h
+cooldown) was chosen on a validation split by the one-standard-error rule, trained and evaluated on AWS, and scored once
+on a frozen internal test split and on a second hospital.
+
+At the budget of 0.2 false alerts per non-septic patient-day, validation utility is 0.379 (95% interval 0.331 to 0.431)
+against 0.018 for the SIRS rule held to the same budget; early-detection recall is 56.1% against 10.2%, with a median
+warning lead of 9 h. On the internal test split utility is 0.351, and on the unseen hospital B (20,000 stays) it is 0.255
+against -0.014 for SIRS, with 0.140 false alerts per non-septic patient-day, so the budget held. Performance drops across
+hospitals (early recall 47.0% at B). Main limitation: retrospective data, a benchmark label that is not clinical truth,
+and low precision at this prevalence (average precision 0.062 at B).
+
+TODO (leo): add precision, recall and F1 once the per-stay predictions are exported (see 7.1); re-read this last.
 
 ## 2. Background / Introduction
 
@@ -42,15 +52,19 @@ length, age and gender, missingness, vital signs), `docs/hospital-a-vs-b.md`.
 
 - Code: https://github.com/low1408/SUTD-PML-team2 (commit: TODO fill from `git rev-parse HEAD`).
 - Features: 276 causal features per hour (`src/sepsis_warning/features.py`); no future information.
-- Models: constant prior, logistic regression, random forest, histogram gradient boosting, and the hand-written
-  NumPy models (`--include-numpy-models`). Selection rule: highest validation utility, then the simplest model
-  within one standard error.
+- Models: constant prior, logistic regression, random forest and histogram gradient boosting (the real-data run on AWS
+  did not include the hand-written NumPy models). Selection rule: highest validation utility, then the simplest model
+  within one standard error. Result: histogram gradient boosting scored 0.383 (standard error 0.0257) and random forest
+  0.379 (0.0259), so the simpler random forest was selected (threshold 0.05, cooldown 6 h).
 - Hyperparameters: reference settings in `src/sepsis_warning/models.toml`; search space in
   `tuning_space.toml`; search method: random/grid sample, patient-grouped (stratified) cross-validation on the
   training split only, selected by mean cross-validated average precision, logged to MLflow experiment
-  `sepsis-warning-tuning`. TODO (Edwin): paste the chosen values from `tuned_models.toml` and the cross-validation
-  figure `fig_tuning.png`.
-- Calibration and threshold: TODO (Kaiyuan) calibration method and how the threshold is tuned.
+  `sepsis-warning-tuning`. The AWS run used 3 patient-grouped folds, 6 trials per model, 11,183 training stays and seed
+  42. Best cross-validated average precision: histogram gradient boosting 0.1069, random forest 0.0903, logistic
+  regression 0.0855. TODO (Edwin): paste the chosen values from `tuned_models.toml` and the figure `fig_tuning.png`.
+- Calibration and threshold: Platt scaling on a separate calibration split (3,051 stays) takes the Brier score from
+  0.1371 (class-weighted, uncalibrated) to 0.0201, below the constant-prior 0.0213. The threshold is the lowest one on
+  the validation split (3,051 stays) that keeps false alerts at or below 0.2 per non-septic patient-day. TODO (Kaiyuan): check wording.
 - Engineering (MLflow registry, gates, API, drift monitoring, AWS): one paragraph plus `docs/mlops-audit.md`.
 
 ### Reproduce
@@ -71,9 +85,26 @@ Seeds, package versions and hardware: `environment.json` next to the results.
 
 ### 7.1 Results against the baseline
 
-TODO (leo): paste `reports/results/metrics_table.md` (validation) and, after the freeze, `test_metrics_table.md`,
-which puts the frozen model beside SIRS at the standard two criteria, SIRS at its validation alert-budget threshold
-and never alerting, on the internal test and hospital B.
+Random forest (frozen, threshold 0.05, 6 h cooldown), from the MLflow runs on AWS. Budget: at most 0.2 false alerts per
+non-septic patient-day.
+
+| Metric | Validation (3,051 stays) | Internal test (3,051) | Hospital B test (20,000) |
+|---|---:|---:|---:|
+| Normalized hourly utility | 0.379 (CI 0.331 to 0.431) | 0.351 | 0.255 |
+| False alerts per non-septic patient-day | 0.177 | 0.174 | 0.140 |
+| Early-detection recall | 56.1% | 54.3% | 47.0% |
+| Median warning lead time | 9 h | 9 h | 9 h |
+| AUROC | 0.817 | 0.807 | 0.792 |
+| Average precision | 0.121 (prior 0.022) | 0.099 (prior 0.022) | 0.062 (prior 0.014) |
+| Brier score | 0.0201 | 0.0202 | 0.0136 |
+
+SIRS rule: on validation, held to the same budget, utility 0.018 and early recall 10.2%. At its standard two-criteria
+setting it raises 1.972 false alerts per non-septic patient-day on the internal test and 1.518 at hospital B (8 to 10
+times the budget), with utility 0.087 and -0.014 and early recall 75.9% and 75.5%.
+
+Intervals are reported for validation only; TODO (leo) add test intervals if available. Precision, recall and F1 are
+not in the AWS output (only aggregate metrics are exported), so they must come from a local run or be left out.
+Accuracy is near-trivial: a model that never alerts scores 97.8% at hospital A and 98.6% at B with utility 0.
 Report accuracy, precision, recall, F1, average precision, hourly utility and the intervals. State plainly that accuracy
 is near-trivial at this prevalence.
 

@@ -228,6 +228,8 @@ Resources:
                   - !Sub "${ArtifactBucketArn}/tuning/*"
                   - !Sub "${ArtifactBucketArn}/reports/*"
                   - !Sub "${ArtifactBucketArn}/training-output/*"
+                  # The monitor_reference step saves the Evidently reference of the served model here (first real run: AccessDenied).
+                  - !Sub "${ArtifactBucketArn}/monitoring/evidently/*"
               - Sid: PublishApprovedModel
                 Effect: Allow
                 Action:

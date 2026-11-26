@@ -286,7 +286,7 @@ def subgroup_rows(table: pd.DataFrame, config: MonitoringConfig) -> list[dict]:
         for group in groups:
             members = labels.index[labels == group]
             septic = int(stays.loc[members, "septic"].sum())
-            sufficient = septic >= config.min_subgroup_septic_stays and len(members) > septic
+            sufficient = config.min_subgroup_septic_stays <= septic < len(members)
             row = {
                 "attribute": attribute, "group": group, "stays": len(members),
                 "septic_stays": septic, "sufficient": bool(sufficient),
@@ -534,7 +534,7 @@ def summarize_results(results: dict, scored: pd.DataFrame, reference: dict) -> d
     """Aggregate summary for the report and slides; contains no patient-level rows."""
     config = MonitoringConfig(**reference["config"])
     families = {}
-    for family, (speed, owner, watches) in CHECKS.items():
+    for family, (speed, owner, _watches) in CHECKS.items():
         table = results[speed]
         names = FAST_STATS if speed == "fast" else SLOW_STATS
         statuses = [family_status(row, family, names) for _, row in table.iterrows()] if len(table) else []

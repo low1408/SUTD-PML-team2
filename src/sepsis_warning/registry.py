@@ -49,7 +49,7 @@ BUNDLE_FILE = "model.joblib"
 INPUT_COLUMNS = DYNAMIC + STATIC
 
 
-class BundleModel(mlflow.pyfunc.PythonModel):
+class BundleModel(mlflow.pyfunc.PythonModel):  # pylint: disable=abstract-method
     """MLflow wrapper around a frozen bundle, scoring the same way as the API.
 
     Input: hourly rows with a ``stay_id`` column plus the model inputs

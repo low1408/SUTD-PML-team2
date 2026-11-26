@@ -146,7 +146,7 @@ def create_app(service: ScoringService, model_card: dict | None = None, telemetr
                     break
                 chunks.append(chunk)
             if too_large is None:
-                request._body = b"".join(chunks)   # replayed to the route; the stream is not read twice
+                request._body = b"".join(chunks)  # pylint: disable=protected-access   # replayed to the route; the stream is not read twice
         if too_large is not None:
             response = JSONResponse(status_code=413, content={
                 "error": "too_large",

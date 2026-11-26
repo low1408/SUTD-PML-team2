@@ -52,7 +52,7 @@ def tune_task():
 class StatusTests(unittest.TestCase):
     def run_status(self, stepfunctions, ecs):
         out = []
-        ps.status(stepfunctions, ecs, "machine", "cluster", out=out.append)
+        ps.status(stepfunctions, ecs, "machine", "cluster", out=out.append, now=NOW)
         return "\n".join(out)
 
     def test_a_running_run_shows_its_step_its_age_and_what_bills(self):

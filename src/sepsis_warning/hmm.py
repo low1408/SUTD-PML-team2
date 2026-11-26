@@ -193,10 +193,10 @@ def save_hmm(model: GaussianHMM, path: Path, columns=VITALS, extra: dict | None 
     content = {key: value.tolist() for key, value in asdict(model).items()}
     content["columns"] = list(columns)
     content.update(extra or {})
-    Path(path).write_text(json.dumps(content, indent=2))
+    Path(path).write_text(json.dumps(content, indent=2), encoding="utf-8")
 
 
 def load_hmm(path: Path) -> tuple[GaussianHMM, list[str]]:
-    content = json.loads(Path(path).read_text())
+    content = json.loads(Path(path).read_text(encoding="utf-8"))
     model = GaussianHMM(*(np.array(content[key]) for key in ("start", "transition", "means", "stds")))
     return model, content["columns"]

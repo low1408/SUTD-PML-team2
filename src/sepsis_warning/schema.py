@@ -82,7 +82,7 @@ def build_schema():
     except ImportError as error:
         raise ValueError('Pandera is not installed; run: python -m pip install -e ".[checks]"') from error
 
-    numeric = pa.Check(lambda s: pd.api.types.is_numeric_dtype(s), name="numeric_type")
+    numeric = pa.Check(pd.api.types.is_numeric_dtype, name="numeric_type")
     finite = pa.Check(lambda s: ~np.isinf(pd.to_numeric(s, errors="coerce").fillna(0)), name="no_infinite_values")
     columns = {name: pa.Column(nullable=True, checks=[numeric, finite]) for name in DYNAMIC + STATIC}
     columns["ICULOS"] = pa.Column(nullable=False, checks=[numeric, finite])
@@ -98,7 +98,7 @@ def build_schema():
 def validate_hourly(frame: pd.DataFrame) -> None:
     """Raise ValueError naming each broken rule. Blank clinical values are allowed."""
     schema = build_schema()
-    import pandera.errors as errors
+    from pandera import errors
 
     try:
         schema.validate(frame, lazy=True)

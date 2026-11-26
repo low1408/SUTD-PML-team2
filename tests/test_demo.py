@@ -56,5 +56,80 @@ class DemoTests(unittest.TestCase):
         self.assertIn("demo) cmd_demo", (ROOT / "scripts" / "aws_deploy.sh").read_text(encoding="utf-8"))
 
 
+class TrafficTests(unittest.TestCase):
+    """Many stays through /score for the monitor: the ward page stops at 24 beds and always shows the same stays."""
+
+    @staticmethod
+    def cohort(n=40, hours=100):
+        import pandas as pd
+
+        from sepsis_warning.data import DYNAMIC, STATIC, Patient
+        columns = DYNAMIC + STATIC + ["SepsisLabel"]
+        return [Patient(f"p{i:03d}", "A", pd.DataFrame({c: [float(i)] * hours for c in columns})) for i in range(n)]
+
+    def test_the_sample_has_the_requested_size_and_no_stay_twice(self):
+        chosen = demo.pick_traffic(self.cohort(40), 25, 72, seed=1)
+        self.assertEqual(len(chosen), 25)
+        self.assertEqual(len({p.patient_id for p in chosen}), 25)
+
+    def test_a_small_split_gives_all_its_stays_and_hours_are_cut(self):
+        chosen = demo.pick_traffic(self.cohort(10), 300, 72, seed=1)
+        self.assertEqual(len(chosen), 10)
+        self.assertTrue(all(len(p.frame) == 72 for p in chosen))
+
+    def test_the_seed_decides_which_stays_and_the_same_seed_gives_the_same_ones(self):
+        cohort = self.cohort(60)
+        ids = lambda seed: [p.patient_id for p in demo.pick_traffic(cohort, 20, 72, seed)]  # noqa: E731
+        self.assertEqual(ids(1), ids(1))
+        self.assertNotEqual(ids(1), ids(2))
+
+    def test_nothing_to_send_is_refused(self):
+        with self.assertRaises(ValueError):
+            demo.pick_traffic(self.cohort(5), 0, 72, 1)
+
+    def test_every_stay_is_one_request_and_the_counts_add_up(self):
+        calls = []
+
+        def post(patient_id, hours):
+            calls.append((patient_id, len(hours)))
+            return {"hours": [{"alert_event": i == 0} for i in range(3)]}
+
+        result = demo.send_traffic(demo.pick_traffic(self.cohort(12), 12, 72, 1), post, workers=3)
+        self.assertEqual((result["sent"], result["ok"], result["failed"]), (12, 12, 0))
+        self.assertEqual((result["hours"], result["alerts"]), (36, 12))
+        self.assertEqual(len(calls), 12)
+        self.assertEqual(len({pid for pid, _ in calls}), 12)
+        self.assertTrue(all(pid.startswith("traffic-") for pid, _ in calls))        # no record id leaves the machine
+        self.assertTrue(all(n == 72 for _, n in calls))
+
+    def test_a_failed_request_is_counted_and_does_not_stop_the_others(self):
+        def post(patient_id, hours):
+            if patient_id.endswith("0003"):
+                raise RuntimeError("HTTP 502")
+            return {"hours": []}
+
+        result = demo.send_traffic(demo.pick_traffic(self.cohort(8), 8, 72, 1), post, workers=2)
+        self.assertEqual((result["ok"], result["failed"]), (7, 1))
+        self.assertIn("HTTP 502", result["first_error"])
+
+    def test_the_same_freeze_and_real_model_rules_apply_as_for_the_ward(self):
+        import inspect
+        source = inspect.getsource(demo.traffic)
+        self.assertIn("require_frozen(split, registry)", source)
+        self.assertIn('health.get("synthetic_model")', source)
+
+    def test_the_workflow_offers_traffic_and_passes_the_numbers_through_the_environment(self):
+        workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "demo.yml").read_text(encoding="utf-8"))
+        inputs = workflow[True]["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["mode"]["options"], ["ward", "traffic"])
+        self.assertEqual(inputs["mode"]["default"], "ward")
+        self.assertEqual(inputs["stays"]["default"], "300")
+        text = (ROOT / ".github" / "workflows" / "demo.yml").read_text(encoding="utf-8")
+        for name in ("MODE", "STAYS", "SEED"):
+            self.assertIn(f"{name}: ${{{{ inputs.{name.lower()} }}}}", text)
+        script = (ROOT / "scripts" / "aws_deploy.sh").read_text(encoding="utf-8")
+        self.assertIn('--mode "${MODE:-ward}"', script)
+
+
 if __name__ == "__main__":
     unittest.main()

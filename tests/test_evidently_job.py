@@ -143,6 +143,9 @@ class EvidentlyRunTests(unittest.TestCase):
             self.assertTrue(drift["score_drift"]["drifted"])
             self.assertFalse(calm["score_drift"]["drifted"])
             self.assertTrue(any((temp / "workspace").rglob("*")))             # the UI has something to show
+            from evidently.ui.workspace import Workspace
+            project = Workspace(str(temp / "workspace")).search_project(job.PROJECT_NAME)[0]
+            self.assertGreaterEqual(sum(len(tab.panels) for tab in project.dashboard.model().tabs), 3)   # not an empty dashboard
 
     def test_the_whole_report_job_against_a_fake_bucket_publishes_metrics(self):
         rng = np.random.default_rng(2)
@@ -191,6 +194,36 @@ class UiTests(unittest.TestCase):
         self.assertEqual(started[0][:2], ["evidently", "ui"])
         self.assertIn("--host", started[0])
         self.assertEqual(started[0][started[0].index("--port") + 1], "8000")
+
+    def test_the_ui_restarts_when_a_refresh_brings_a_new_project(self):
+        started = []
+
+        class Process:
+            def __init__(self, cmd):
+                started.append(cmd)
+                self.running = True
+
+            def poll(self):
+                return None if self.running else 0
+
+            def terminate(self):
+                self.running = False
+
+            def wait(self):
+                return 0
+
+        with tempfile.TemporaryDirectory() as temp:
+            s3 = FakeS3(Path(temp))
+            ticks = iter([False, False, False, True])
+            added = []
+
+            def sleep(_):
+                if not added:
+                    added.append(True)
+                    s3.put("bkt", "monitoring/evidently/workspace/project/snapshot.json", b"{}")
+
+            job.ui("bkt", 8000, every=1, s3=s3, popen=Process, sleep=sleep, stop=lambda: next(ticks))
+        self.assertEqual(len(started), 2)
 
 
 if __name__ == "__main__":

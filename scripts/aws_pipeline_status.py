@@ -47,12 +47,12 @@ def failures(stepfunctions, arn: str) -> list[str]:
     return found[:5]
 
 
-def hours(start: datetime, end: datetime | None = None) -> str:
-    seconds = int(((end or datetime.now(UTC)) - start).total_seconds())
+def hours(start: datetime, end: datetime | None = None, now: datetime | None = None) -> str:
+    seconds = int(((end or now or datetime.now(UTC)) - start).total_seconds())
     return f"{seconds // 3600}h {seconds % 3600 // 60:02d}m"
 
 
-def running_tasks(ecs, cluster: str) -> list[str]:
+def running_tasks(ecs, cluster: str, now: datetime | None = None) -> list[str]:
     arns = ecs.list_tasks(cluster=cluster, desiredStatus="RUNNING").get("taskArns", [])
     if not arns:
         return []
@@ -61,11 +61,11 @@ def running_tasks(ecs, cluster: str) -> list[str]:
         family = task["taskDefinitionArn"].rsplit("/", 1)[-1].split(":")[0]
         started = task.get("startedAt")
         lines.append(f"{family}: {int(task['cpu']) / 1024:g} vCPU, {int(task['memory']) / 1024:g} GB"
-                     + (f", running for {hours(started)}" if started else ""))
+                     + (f", running for {hours(started, now=now)}" if started else ""))
     return lines
 
 
-def status(stepfunctions, ecs, machine: str, cluster: str, out=print) -> int:
+def status(stepfunctions, ecs, machine: str, cluster: str, out=print, now: datetime | None = None) -> int:
     execution = latest(stepfunctions, machine)
     if not execution:
         out("No pipeline run yet. Start one with the pipeline workflow (action start).")
@@ -75,13 +75,13 @@ def status(stepfunctions, ecs, machine: str, cluster: str, out=print) -> int:
         out(f"Run {execution['name']}: {state}" + (f", in step {step}" if step else "")
             + f", started {execution['startDate']:%Y-%m-%d %H:%M} UTC, "
             + (f"ran {hours(execution['startDate'], execution.get('stopDate'))}" if execution.get("stopDate")
-               else f"running for {hours(execution['startDate'])}"))
+               else f"running for {hours(execution['startDate'], now=now)}"))
         if state == "RUNNING" and step in NEXT:
             out(NEXT[step])
         if state in ("FAILED", "TIMED_OUT", "ABORTED"):
             for line in failures(stepfunctions, execution["executionArn"]) or ["no failure details were recorded"]:
                 out(f"  {line}")
-    tasks = running_tasks(ecs, cluster)
+    tasks = running_tasks(ecs, cluster, now)
     out("Running on Fargate now (this is what bills):" if tasks else "Nothing is running on the training cluster.")
     for line in tasks:
         out(f"  {line}")

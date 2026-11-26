@@ -337,7 +337,7 @@ def subgroup_table(frame: pd.DataFrame, score: str, threshold: float, cooldown: 
     def describe(mask: np.ndarray, attribute: str, group: str, minimum: int = min_septic_stays) -> tuple[dict, dict | None]:
         stays, septic_stays = int(mask.sum()), int(septic[mask].sum())
         row = {"scope": scope, "attribute": attribute, "group": group, "stays": stays, "septic_stays": septic_stays,
-               "hours": int(hours[mask].sum()), "sufficient": septic_stays >= minimum and stays > septic_stays}
+               "hours": int(hours[mask].sum()), "sufficient": minimum <= septic_stays < stays}
         if not row["sufficient"]:
             return row, None
         point = _summaries(sums[mask].sum(axis=0))

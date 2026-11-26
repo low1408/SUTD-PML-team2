@@ -322,7 +322,9 @@ Resources:
         - Id: retrain
           Arn: !Ref PipelineArn
           RoleArn: !GetAtt RetrainRole.Arn
-          Input: !Sub '{"image_tag": "${RetrainImageTag}", "git_commit": "", "require_real_data": "true", "trigger": "drift-alarm"}'
+          # Every key the state machine reads from its input (a missing one fails the first step): the drift alarm retrains on the real
+          # data, reusing the prepared data. Extra keys are ignored by the pipeline that does not use them.
+          Input: !Sub '{"image_tag": "${RetrainImageTag}", "git_commit": "", "require_real_data": "true", "prepare": "false", "data_source": "physionet", "limit": "0", "trials": "6", "force": "false", "instance_type": "ml.m5.large", "trigger": "drift-alarm"}'
 
 Outputs:
   PredictionLogPrefix:

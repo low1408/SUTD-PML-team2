@@ -165,16 +165,41 @@ class RootWiringTests(unittest.TestCase):
         self.assertEqual(resources["EcsPlatform"]["Condition"], "NeedsEcsPlatform")
         self.assertEqual(resources["PipelineEcs"]["Properties"]["TemplateURL"], "pipeline-ecs.yaml")
 
-    def test_dev_trains_on_ecs_because_a_new_account_has_no_sagemaker_quota(self):
-        dev = json.loads((ROOT / "infra" / "params" / "dev.json").read_text(encoding="utf-8"))
-        self.assertEqual(dev["TrainingBackend"], "ecs")
-        for name in ("staging.json", "prod.json"):
+    def test_every_environment_trains_on_ecs_because_a_new_account_has_no_sagemaker_quota(self):
+        """staging and prod once kept the SageMaker defaults, and a deploy there would have needed the quota (see tests/test_params.py)."""
+        for name in ("dev.json", "staging.json", "prod.json"):
             params = json.loads((ROOT / "infra" / "params" / name).read_text(encoding="utf-8"))
-            self.assertNotEqual(params.get("TrainingBackend"), "ecs", name)
+            self.assertEqual(params.get("TrainingBackend"), "ecs", name)
 
     def test_deploy_script_accepts_the_backend_override(self):
         text = (ROOT / "scripts" / "aws_deploy.sh").read_text(encoding="utf-8")
         self.assertIn('TrainingBackend=$TRAINING_BACKEND', text)
+
+
+
+class TrainingTaskRoleTests(unittest.TestCase):
+    def statements(self):
+        role = load("ecs-platform.yaml")["Resources"]["TaskRole"]["Properties"]["Policies"]
+        return [s for policy in role for s in policy["PolicyDocument"]["Statement"]]
+
+    def writable(self):
+        found = []
+        for statement in self.statements():
+            if not isinstance(statement, dict):     # a conditional statement (Fn::If) is not a plain grant
+                continue
+            actions = statement["Action"] if isinstance(statement["Action"], list) else [statement["Action"]]
+            if "s3:PutObject" in actions:
+                resources = statement["Resource"] if isinstance(statement["Resource"], list) else [statement["Resource"]]
+                found += [json.dumps(r) for r in resources]
+        return " ".join(found)
+
+    def test_the_monitor_reference_step_may_save_the_evidently_reference(self):
+        """The first real run of monitor reference failed with AccessDenied on monitoring/evidently/<bundle>/reference.json."""
+        self.assertIn("monitoring/evidently/*", self.writable())
+
+    def test_the_other_prefixes_the_steps_write_stay_writable(self):
+        for prefix in ("data/*", "tuning/*", "reports/*", "training-output/*", "models/*"):
+            self.assertIn(prefix, self.writable(), prefix)
 
 
 if __name__ == "__main__":

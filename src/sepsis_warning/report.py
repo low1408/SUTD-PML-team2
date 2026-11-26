@@ -22,5 +22,5 @@ def write_report(path, table, summary, threshold, synthetic):
         "patients": patients, "metrics": summary, "threshold": threshold,
         "synthetic": synthetic,
     }, allow_nan=False).replace("<", "\\u003c")
-    template = Path(__file__).with_name("report_template.html").read_text()
-    Path(path).write_text(template.replace("__PAYLOAD__", payload))
+    template = Path(__file__).with_name("report_template.html").read_text(encoding="utf-8")
+    Path(path).write_text(template.replace("__PAYLOAD__", payload), encoding="utf-8")

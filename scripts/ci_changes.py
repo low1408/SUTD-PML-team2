@@ -51,9 +51,9 @@ def changed_files(base: str, head: str, run=subprocess.run) -> list[str] | None:
     """Files changed from base to head; None when base is missing, all zeros or not in this clone."""
     if not base or base == ZERO:
         return None
-    result = run(["git", "diff", "--name-only", f"{base}...{head}"], capture_output=True, text=True)
+    result = run(["git", "diff", "--name-only", f"{base}...{head}"], capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        result = run(["git", "diff", "--name-only", base, head], capture_output=True, text=True)
+        result = run(["git", "diff", "--name-only", base, head], capture_output=True, text=True, check=False)
         if result.returncode != 0:
             return None
     return [line for line in result.stdout.splitlines() if line]

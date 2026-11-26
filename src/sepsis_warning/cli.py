@@ -69,7 +69,7 @@ from .ward import (
 
 
 def write_json(path, value):
-    Path(path).write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
+    Path(path).write_text(json.dumps(value, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
 
 def load_cohorts(args):
@@ -124,7 +124,7 @@ def check_training_data(args) -> None:
         print("WARNING: data checks skipped (--skip-data-checks)", flush=True)
         return
     try:
-        import pandera  # noqa: F401
+        import pandera  # noqa: F401  # pylint: disable=unused-import
     except ImportError as error:
         raise RuntimeError(
             "training on a Parquet table runs the data checks, which need the checks extra: "

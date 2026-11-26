@@ -23,9 +23,20 @@ on:
         type: choice
         options: [validation, internal_test, external_test]
         default: validation
+      mode:
+        description: ward = the replay page (at most 24 beds, the same mix each time). traffic = many stays through the live API, no page, to fill the prediction log for monitor
+        type: choice
+        options: [ward, traffic]
+        default: ward
       beds:
-        description: Stays on the ward
+        description: ward only. Stays on the ward (1 to 24)
         default: "12"
+      stays:
+        description: traffic only. How many different stays to send (monitor needs at least 200 requests, one per stay)
+        default: "300"
+      seed:
+        description: Which random stays. A different number picks different ones
+        default: "42"
 
 permissions:
   contents: read
@@ -50,6 +61,8 @@ jobs:
           ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
           ROLE_ARN_VAR: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           BEDS: ${{ inputs.beds }}
+          STAYS: ${{ inputs.stays }}
+          SEED: ${{ inputs.seed }}
         run: |
           region="$REGION_INPUT"
           [ "$region" != "environment default" ] || region="$DEFAULT_REGION"
@@ -57,7 +70,9 @@ jobs:
             ap-southeast-1|ap-southeast-2) ;;
             *) echo "Region '$region' is not supported." >&2; exit 1 ;;
           esac
-          case "$BEDS" in ''|*[!0-9]*) echo "beds must be a whole number" >&2; exit 1 ;; esac
+          for value in "$BEDS" "$STAYS" "$SEED"; do
+            case "$value" in ''|*[!0-9]*) echo "beds, stays and seed must be whole numbers" >&2; exit 1 ;; esac
+          done
           if [ -n "$ROLE_ARN_VAR" ]; then
             role="$ROLE_ARN_VAR"
           elif [ -n "$ACCOUNT_ID" ]; then
@@ -93,5 +108,8 @@ jobs:
           CONFIRM_PROD: ${{ inputs.environment == 'prod' && 'yes' || '' }}
           AWS_REGION: ${{ steps.target.outputs.region }}
           SPLIT: ${{ inputs.split }}
+          MODE: ${{ inputs.mode }}
           BEDS: ${{ inputs.beds }}
+          STAYS: ${{ inputs.stays }}
+          SEED: ${{ inputs.seed }}
         run: bash scripts/aws_deploy.sh demo

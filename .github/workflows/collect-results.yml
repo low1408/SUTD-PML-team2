@@ -1,0 +1,196 @@
+# Run this once, after the pipeline, the approval, the deploy, the demo and the monitoring are all done. It pulls the AGGREGATE
+# results of the finished run from the private artifact bucket into the folders the report uses, and opens a pull request to main:
+#
+#   reports/results/        report tables and figures, the run's selection and tuning files, the approval record, the drift metrics
+#   reports/results_test/   evaluation_metrics.json (the one frozen test evaluation, aggregates only)
+#   reports/results/PROVENANCE.md   which run, which model, which commit, the SHA-256 of every file, and what was skipped
+#
+# It never copies the model, the prepared data, per-patient files, ward replays or the Evidently report page (scripts/collect_results.py
+# has the allowlist), and it replaces the bucket name and AWS account id in text files with placeholders. Read-only on AWS.
+#
+# One-time setting: Settings -> Actions -> General -> "Allow GitHub Actions to create and approve pull requests".
+# A pull request opened by a workflow does not start the tests by itself: close and reopen it once to run the checks.
+# Changes to this file need owner review.
+name: collect-results
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to collect from
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+      region:
+        description: AWS region of the deployment
+        type: choice
+        options: [environment default, ap-southeast-1, ap-southeast-2]
+        default: environment default
+      execution:
+        description: Pipeline run id (empty = the latest run that SUCCEEDED)
+        default: ""
+      model_version:
+        description: Published model version for the approval record (empty = the newest)
+        default: ""
+      include_monitoring:
+        description: Also take the newest drift report's metrics.json (run monitor first)
+        type: boolean
+        default: true
+      include_failure_examples:
+        description: Also take fig_failure_examples.png (it shows individual stays; leave off unless the team agreed)
+        type: boolean
+        default: false
+      dry_run:
+        description: List what would be collected and stop (no branch, no pull request)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write         # push the results branch
+  pull-requests: write    # open the pull request
+  id-token: write         # OIDC token for AWS; no stored credentials
+
+concurrency:
+  group: collect-results-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Check the inputs
+        env:
+          EXECUTION: ${{ inputs.execution }}
+          MODEL_VERSION: ${{ inputs.model_version }}
+        run: |
+          if [ -n "$EXECUTION" ] && ! [[ "$EXECUTION" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "execution may only contain letters, digits, dot, dash and underscore" >&2
+            exit 1
+          fi
+          case "$MODEL_VERSION" in *[!0-9]*) echo "model_version must be a whole number" >&2; exit 1 ;; esac
+
+      - name: Resolve the region and the deploy role
+        id: target
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          REGION_INPUT: ${{ inputs.region }}
+          DEFAULT_REGION: ${{ vars.AWS_REGION }}
+          ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          ROLE_ARN_VAR: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          region="$REGION_INPUT"
+          [ "$region" != "environment default" ] || region="$DEFAULT_REGION"
+          case "$region" in
+            ap-southeast-1|ap-southeast-2) ;;
+            *) echo "Region '$region' is not supported." >&2; exit 1 ;;
+          esac
+          if [ -n "$ROLE_ARN_VAR" ]; then
+            role="$ROLE_ARN_VAR"
+          elif [ -n "$ACCOUNT_ID" ]; then
+            role="arn:aws:iam::${ACCOUNT_ID}:role/github-deploy-${ENVIRONMENT}-${region}"
+          else
+            echo "The '$ENVIRONMENT' environment has neither AWS_ACCOUNT_ID nor AWS_DEPLOY_ROLE_ARN." >&2
+            exit 1
+          fi
+          echo "region=$region" >> "$GITHUB_OUTPUT"
+          echo "role=$role" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true   # the push of the results branch uses this token
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ steps.target.outputs.role }}
+          aws-region: ${{ steps.target.outputs.region }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the tools (locked)
+        run: |
+          python -m pip install --require-hashes -r requirements/ci.txt
+          python -m pip install --no-deps -e .
+
+      - name: Collect the aggregate results from S3
+        id: collect
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          AWS_REGION: ${{ steps.target.outputs.region }}
+          EXECUTION: ${{ inputs.execution }}
+          MODEL_VERSION: ${{ inputs.model_version }}
+          INCLUDE_MONITORING: ${{ inputs.include_monitoring }}
+          INCLUDE_FAILURE: ${{ inputs.include_failure_examples }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=(--stack "sepsis-$ENVIRONMENT" --region "$AWS_REGION")
+          [ -z "$EXECUTION" ] || args+=(--execution "$EXECUTION")
+          [ -z "$MODEL_VERSION" ] || args+=(--model-version "$MODEL_VERSION")
+          [ "$INCLUDE_MONITORING" = true ] || args+=(--no-monitoring)
+          [ "$INCLUDE_FAILURE" != true ] || args+=(--include-failure-examples)
+          [ "$DRY_RUN" != true ] || args+=(--dry-run)
+          python scripts/collect_results.py "${args[@]}"
+
+      # The same rule as the tests workflow: nothing that looks like patient data or a model may be committed, and nothing
+      # outside the two results folders may change.
+      - name: Check what changed before committing
+        if: inputs.dry_run != true
+        run: |
+          git add -A reports/results reports/results_test
+          changed="$(git diff --cached --name-only)"
+          if [ -z "$changed" ]; then echo "Nothing changed since the last collection."; exit 0; fi
+          echo "$changed"
+          outside="$(echo "$changed" | grep -v -E '^reports/results(_test)?/' || true)"
+          if [ -n "$outside" ]; then echo "Unexpected files:"; echo "$outside"; exit 1; fi
+          forbidden="$(echo "$changed" | grep -E '\.(psv|joblib|pkl|pickle|parquet)$|^data/|^artifacts/|replay|ward-|held_out|split_manifest' || true)"
+          if [ -n "$forbidden" ]; then echo "These files must not be committed:"; echo "$forbidden"; exit 1; fi
+
+      - name: Commit, push and open the pull request
+        if: inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXECUTION: ${{ steps.collect.outputs.execution }}
+          VERSION: ${{ steps.collect.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if git diff --cached --quiet; then
+            echo "### Nothing to commit" >> "$GITHUB_STEP_SUMMARY"
+            echo "The bucket holds the same results as the last collection." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          branch="results/${EXECUTION:0:8}-$(date -u +%Y%m%d-%H%M)"
+          git switch -c "$branch"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Results of pipeline run ${EXECUTION:0:8} (model v${VERSION:-?}) from AWS" \
+                      -m "Aggregate outputs only, collected by the collect-results workflow. See reports/results/PROVENANCE.md."
+          git push -q origin "$branch"
+          {
+            echo "## Results of pipeline run \`$EXECUTION\` (model version ${VERSION:-unknown})"
+            echo
+            echo "Collected from the private artifact bucket by the **collect-results** workflow ($RUN_URL)."
+            echo "Aggregate outputs only: the model, the prepared data, per-patient files, ward replays and the Evidently report page are never copied."
+            echo "Bucket name and AWS account id are replaced by placeholders in text files."
+            echo
+            echo "- \`reports/results/\`: report tables and figures, \`run/\` selection files, \`tuning/\`, \`registry.json\` (the approval record), \`monitoring/metrics.json\`"
+            echo "- \`reports/results_test/evaluation_metrics.json\`: the one frozen test evaluation"
+            echo "- \`reports/results/PROVENANCE.md\`: the run, the commit, the SHA-256 of every file, and what was skipped and why"
+            echo
+            echo "### Before merging"
+            echo "- [ ] Open the figures: none shows anything that should not be public"
+            echo "- [ ] The numbers match what the MLflow UI shows for this run"
+            echo "- [ ] The checks ran (if none appear, close and reopen this pull request once)"
+          } > /tmp/pr_body.md
+          if ! gh pr create --base main --head "$branch" --title "Results of pipeline run ${EXECUTION:0:8} from AWS" --body-file /tmp/pr_body.md; then
+            {
+              echo "### The branch was pushed but the pull request could not be opened"
+              echo "Enable Settings -> Actions -> General -> *Allow GitHub Actions to create and approve pull requests*, or open it yourself:"
+              echo "https://github.com/$REPOSITORY/compare/main...$branch?expand=1"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

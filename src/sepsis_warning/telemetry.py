@@ -33,7 +33,7 @@ class Telemetry:
     def __init__(self, stream=None, prediction_log=None, environment: str = "local"):
         self.stream = stream or sys.stdout
         self.environment = environment
-        self._prediction_file = open(prediction_log, "a", encoding="utf-8") if prediction_log else None  # noqa: SIM115
+        self._prediction_file = open(prediction_log, "a", encoding="utf-8") if prediction_log else None  # noqa: SIM115  # pylint: disable=consider-using-with
         self._lock = threading.Lock()
 
     def _write(self, record: dict, to_prediction_file: bool = False) -> None:

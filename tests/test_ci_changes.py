@@ -108,8 +108,25 @@ class ChangedFilesTests(unittest.TestCase):
         self.assertIsNone(cc.changed_files("deadbeef" * 5, "HEAD"))
 
     def test_a_real_range(self):
-        files = cc.changed_files("HEAD~1", "HEAD")
-        self.assertIsInstance(files, list)
+        # A throwaway repository, so the test does not depend on how much history the CI checkout has.
+        import functools
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp:
+            def git(*args):
+                subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=temp, check=True,
+                               capture_output=True)
+
+            git("init", "-q")
+            (Path(temp) / "a.txt").write_text("1", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-q", "-m", "one")
+            (Path(temp) / "b.txt").write_text("2", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-q", "-m", "two")
+            run = functools.partial(subprocess.run, cwd=temp)
+            self.assertEqual(cc.changed_files("HEAD~1", "HEAD", run=run), ["b.txt"])
 
 
 class OutputTests(unittest.TestCase):

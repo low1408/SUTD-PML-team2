@@ -18,9 +18,10 @@ import os
 import time
 from pathlib import Path
 
-_adapter = None
-_failed_at = None
-_failure = ""
+# Module state of the warm Lambda container (changed by load), not constants.
+_adapter = None  # pylint: disable=invalid-name
+_failed_at = None  # pylint: disable=invalid-name
+_failure = ""  # pylint: disable=invalid-name
 RETRY_AFTER_SECONDS = 60
 
 
@@ -62,7 +63,7 @@ def _unavailable(reason: str) -> dict:
 def handler(event, context):
     """A failed model load is remembered for a minute, so a broken release does not
     download and fail again on every request; callers get 503 with Retry-After."""
-    global _adapter, _failed_at, _failure
+    global _adapter, _failed_at, _failure  # pylint: disable=global-statement
     if _adapter is None:
         if _failed_at is not None and time.monotonic() - _failed_at < RETRY_AFTER_SECONDS:
             response = _unavailable(_failure)

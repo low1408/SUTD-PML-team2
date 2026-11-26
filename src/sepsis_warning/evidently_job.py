@@ -23,6 +23,7 @@ shows up without restarting the service.
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import signal
@@ -103,7 +104,25 @@ def add_to_workspace(workspace: Path, snapshot, run_name: str = "") -> None:
     ws = Workspace.create(str(workspace))
     found = ws.search_project(PROJECT_NAME)
     project = found[0] if found else ws.create_project(PROJECT_NAME)
+    ensure_dashboard(project)
     ws.add_run(project.id, snapshot, name=run_name or None)
+
+
+def ensure_dashboard(project) -> None:
+    """Give the project's Dashboard tab panels. A new project has none and the UI says the dashboard is empty."""
+    from evidently.sdk.models import PanelMetric
+    from evidently.sdk.panels import counter_panel, line_plot_panel
+
+    if any(tab.panels for tab in project.dashboard.model().tabs):
+        return
+    drifted = "evidently:metric_v2:DriftedColumnsCount"
+    share = PanelMetric(legend="share of columns", metric=drifted, metric_labels={"value_type": "share"})
+    count = PanelMetric(legend="columns", metric=drifted, metric_labels={"value_type": "count"})
+    project.dashboard.add_panel(counter_panel(title="Share of drifted columns (latest run)", size="half", values=[share],
+                                              aggregation="last"))
+    project.dashboard.add_panel(counter_panel(title="Drifted columns (latest run)", size="half", values=[count], aggregation="last"))
+    project.dashboard.add_panel(line_plot_panel(title="Share of drifted columns over runs", size="full", values=[share]))
+    project.save()
 
 
 def cloudwatch_metrics(summary: dict, environment: str) -> list[dict]:
@@ -223,21 +242,47 @@ def report(bucket: str, days: int, environment: str, now: datetime.datetime | No
     return summary
 
 
+def tree_signature(root: Path) -> str:
+    """A fingerprint of every file under ``root`` (path and content), to see whether a refresh changed anything."""
+    digest = hashlib.sha256()
+    for path in sorted(Path(root).rglob("*")):
+        if path.is_file():
+            digest.update(path.relative_to(root).as_posix().encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def ui(bucket: str, port: int = 8000, every: int = 60, s3=None, popen=subprocess.Popen, sleep=None, stop=lambda: False) -> int:
-    """Serve the workspace and keep it in step with S3 until the task is stopped."""
+    """Serve the workspace and keep it in step with S3 until the task is stopped.
+
+    The Evidently UI reads its projects when it starts and may not notice files that appear later, so when a refresh
+    changes the workspace (the first report run, or a new run) the UI process is restarted on the new files. Without this
+    the page stays on "no projects" although the workspace in S3 holds the report.
+    """
     import time
 
     s3, sleep = _s3(s3), sleep or time.sleep
     workspace = Path(tempfile.mkdtemp(prefix="evidently-workspace-"))
-    sync_down(s3, bucket, WORKSPACE_PREFIX, workspace)
-    process = popen(["evidently", "ui", "--workspace", str(workspace), "--host", "0.0.0.0", "--port", str(port)])
+    command = ["evidently", "ui", "--workspace", str(workspace), "--host", "0.0.0.0", "--port", str(port)]
+    count = sync_down(s3, bucket, WORKSPACE_PREFIX, workspace)
+    seen = tree_signature(workspace)
+    print(f"workspace: {count} file(s) from s3://{bucket}/{WORKSPACE_PREFIX}/", flush=True)
+    process = popen(command)
     signal.signal(signal.SIGTERM, lambda *_: process.terminate())
     while process.poll() is None and not stop():
         sleep(every)
         try:
-            sync_down(s3, bucket, WORKSPACE_PREFIX, workspace)
+            count = sync_down(s3, bucket, WORKSPACE_PREFIX, workspace)
         except Exception as error:  # noqa: BLE001 - keep serving what is there
-            print(f"workspace refresh failed: {type(error).__name__}", file=sys.stderr, flush=True)
+            print(f"workspace refresh failed: {type(error).__name__}: {error}", file=sys.stderr, flush=True)
+            continue
+        current = tree_signature(workspace)
+        if current != seen:
+            seen = current
+            print(f"workspace changed ({count} file(s)): restarting the UI so it loads the new project", flush=True)
+            process.terminate()
+            process.wait()
+            process = popen(command)
     if process.poll() is None:
         process.terminate()
     return process.wait()

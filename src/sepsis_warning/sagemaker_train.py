@@ -287,7 +287,9 @@ def prepare_data(root: Path, params: dict, client=None) -> list[str]:
     # rehearsal on the synthetic fixture can never overwrite it (force=true is the deliberate way around that).
     existing = read_marker(_s3(client), bucket, prefix)
     if existing and not _flag(params.get("force", "false")):
-        real = lambda name: str(name).startswith("physionet")   # noqa: E731
+        def real(name):
+            return str(name).startswith("physionet")
+
         if real(existing.get("data_source")) and not real(source):
             raise ValueError(f"s3://{bucket}/{prefix}/ holds real PhysioNet data (prepared {existing.get('prepared_at')}); "
                              "refusing to overwrite it with the synthetic fixture. Use a different data prefix, or force=true")

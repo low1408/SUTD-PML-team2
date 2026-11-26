@@ -506,7 +506,7 @@ cmd_call() {
 # SPLIT=validation|internal_test|external_test (held-out splits need the model's recorded frozen evaluation), BEDS, SEED.
 cmd_demo() {
   "$PYTHON" "$ROOT/scripts/aws_demo.py" --stack "$STACK" --region "$AWS_REGION" \
-    --split "${SPLIT:-validation}" --beds "${BEDS:-12}" --seed "${SEED:-42}"
+    --split "${SPLIT:-validation}" --mode "${MODE:-ward}" --beds "${BEDS:-12}" --stays "${STAYS:-300}" --seed "${SEED:-42}"
 }
 
 # power status | start | stop [--component all|mlflow|evidently|database] [--allow-cidr x.x.x.x/32]

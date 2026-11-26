@@ -86,7 +86,7 @@ class ImagesWorkflowTests(unittest.TestCase):
 
 class AwsWorkflowsStayManualTests(unittest.TestCase):
     def test_everything_that_changes_aws_is_started_by_hand(self):
-        for name in ("deploy", "pipeline", "promote", "approve", "demo", "monitor", "power", "teardown", "verify"):
+        for name in ("deploy", "pipeline", "promote", "approve", "demo", "monitor", "power", "teardown", "verify", "collect-results"):
             self.assertEqual(list(load(f"{name}.yml")["on"]), ["workflow_dispatch"], name)
 
     def test_every_workflow_keeps_a_manual_option(self):

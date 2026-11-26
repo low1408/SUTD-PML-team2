@@ -63,3 +63,33 @@ python_version = "3.12"
 ignore_missing_imports = true
 check_untyped_defs = false
 follow_imports = "silent"
+
+[tool.pylint.main]
+jobs = 0
+ignore-paths = ["^src/sepsis_warning/.*_template.*"]
+
+[tool.pylint.format]
+max-line-length = 180
+
+[tool.pylint."messages control"]
+# Documentation is in the module docstrings and docs/; heavy imports are deliberately lazy so the CLI starts fast and
+# tests run without boto3 or mlflow; the design-size checks (too-many-*) flag long analysis functions that are reviewed
+# by hand; broad except clauses are each marked "noqa: BLE001" with the reason.
+disable = [
+  "missing-module-docstring", "missing-class-docstring", "missing-function-docstring",
+  "import-outside-toplevel", "broad-exception-caught",
+  "too-many-locals", "too-many-arguments", "too-many-positional-arguments", "too-many-statements", "too-many-branches",
+  "too-many-instance-attributes", "too-many-return-statements", "too-many-lines", "too-few-public-methods",
+  # scikit-learn convention: fitted attributes ("coef_") are created in fit(); optional packages are not all installed here.
+  "attribute-defined-outside-init", "import-error",
+  # "not len(array)" is deliberate where the value can be a numpy array (its truth value is ambiguous); scripts put their own
+  # folder on sys.path before importing siblings; similar argument parsing in separate command-line scripts is not shared code.
+  "use-implicit-booleaness-not-len", "wrong-import-position", "duplicate-code", "cyclic-import",
+  # false positives: closures created in a loop, a loop that always returns or raises, numpy keyword arguments.
+  "function-redefined", "inconsistent-return-statements", "unexpected-keyword-arg", "unused-argument", "unbalanced-tuple-unpacking",
+]
+
+[tool.pylint.basic]
+# Matrix names from the maths (X, G, H, C, Z, GL...) and scikit-learn's X/C are kept as written in the papers and docs.
+good-names-rgxs = "^[A-Z]{1,2}$"
+good-names = ["i", "j", "k", "n", "_", "df", "ax", "fp", "fn", "tp", "tn"]
