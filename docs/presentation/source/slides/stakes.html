@@ -1,0 +1,26 @@
+<section id="stakes" style="background:#f5f3ee;color:#16232a;font-family:Inter, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:40px">
+<h2 style="font-family:'Space Grotesk', sans-serif;font-size:64px;font-weight:600;line-height:1.1">If the model is wrong, patients pay</h2>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:28px">
+<div style="display:flex;flex-direction:column;gap:14px;background:#ffffff;padding:32px;border:1px solid #dcdfdc;border-radius:16px">
+<h3 style="font-size:32px;font-weight:600;color:#b84f1e">A missed case</h3>
+<p style="font-family:'Space Grotesk', sans-serif;font-size:64px;font-weight:600;color:#b84f1e">~1 in 2</p>
+<p style="font-size:26px;line-height:1.4">early-detectable septic stays get no warning (47% caught at hospital B). Each hour of delayed treatment raises the risk of death by 4–8%.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:14px;background:#ffffff;padding:32px;border:1px solid #dcdfdc;border-radius:16px">
+<h3 style="font-size:32px;font-weight:600;color:#b84f1e">Too many alarms</h3>
+<p style="font-family:'Space Grotesk', sans-serif;font-size:64px;font-weight:600;color:#b84f1e">10×</p>
+<p style="font-size:26px;line-height:1.4">our alert budget is what the SIRS rule raises (1.98 vs 0.2 false alerts per patient-day). Staff learn to ignore it, and real alerts are ignored too.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:14px;background:#ffffff;padding:32px;border:1px solid #dcdfdc;border-radius:16px">
+<h3 style="font-size:32px;font-weight:600;color:#b84f1e">A new hospital</h3>
+<p style="font-family:'Space Grotesk', sans-serif;font-size:64px;font-weight:600;color:#b84f1e">0.351 → 0.255</p>
+<p style="font-size:26px;line-height:1.4">utility falls at the hospital the model never saw. Local re-tuning and a silent trial come before any use.</p>
+</div>
+</div>
+<div style="background:#0f2a33;color:#f5f3ee;padding:32px 40px;border-radius:16px;display:flex;flex-direction:column;gap:12px">
+<h3 style="font-size:30px;font-weight:600;color:#e8875a">What we built to limit the harm</h3>
+<p style="font-size:26px;line-height:1.45">A clinician decides, never the model · five promotion gates · a different person approves · test sets scored once · tamper-checked model file · drift alarms · retraining only after human review.</p>
+</div>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#5b6870">Early detection = share of septic stays warned before onset, hospital B external test · delay risk: Kumar 2006, Seymour 2017 · 14</p>
+<aside>Be direct: this is a decision-support prompt on public retrospective data, not a medical device. A missed case is the worst error; an ignored alarm is a missed case in disguise. Say what the safeguards are, and that none of them replaces a silent trial in a real ward.</aside>
+</section>

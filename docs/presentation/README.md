@@ -19,9 +19,13 @@ python docs/presentation/tools/build_pptx.py /tmp/deck-render docs/presentation/
 
 The slide text in the `.pptx` is part of the image, so text edits belong in `source/slides/*.html`, followed by a rebuild. The deck was authored in a Claude Slides artifact; an editable `.pptx` can also be exported from there (Share → Export) and committed in place of this file.
 
+## Video
+
+[video-script.md](video-script.md) is the script for a 13-minute recorded video: narration split by speaker, on-screen text, animation storyboards and the list of screen recordings to capture. `animations/alarm-fatigue.html` is a self-contained animation (SIRS rule against our model on one ward) to screen-record for the "If the model is wrong" slide.
+
 ## Still to fill in
 
-Bracketed placeholders (`[__]`) mark results that need real runs: model comparison, hospital A vs B, HMM ablation, SHAP drivers, drift report, fairness gaps, latency and the presentation date.
+Bracketed placeholders (`[__]`) still mark results that need the MLflow runs or new runs: the SIRS AUROC and AUPRC, the logistic regression row and the gradient boosting columns other than utility on the model comparison slide, the SHAP drivers, the drift report numbers on the monitoring slide, the fairness gaps, and the presentation date. The slides on HMM and signature features (a local study that was not part of the AWS run) were removed. Slides after "If the model is wrong" moved down by one number.
 
 ## Slide owners
 
@@ -30,7 +34,7 @@ Bracketed placeholders (`[__]`) mark results that need real runs: model comparis
 | Edwin | 4 Data and split · 5 Bedside to model · 9 EDA · 10 SIRS baseline |
 | Jawad | 6 Pipeline · 7 Causal features |
 | Kaiyuan | 3 Objective · 8 Modelling ladder · 11 Score to alert · 12 Model comparison |
-| Josh | 14 HMM states and patient groups |
+| Josh | 14 If the model is wrong (new) · 20 Governance (video) |
 | Leo | 16 Building blocks · 17 Commit to production · 18 AWS deployment |
 | Mashie | 13 Hospital B test · 15 Explanations · 19 Monitoring · 20 Governance |
 

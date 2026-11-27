@@ -1,4 +1,9 @@
-# Serverless AWS: SageMaker training, SageMaker MLflow and Lambda scoring
+# Legacy design: SageMaker training, SageMaker MLflow and Lambda scoring
+
+> **Not the design that is deployed.** This page describes the first, SageMaker-based design, which is still in the templates
+> behind `TrainingBackend=sagemaker` and `EnableSageMaker`. All environments use ECS Fargate for training and MLflow and
+> Evidently on ECS. For the current design read [RUN-ORDER.md](RUN-ORDER.md), [ecs-runbook.md](ecs-runbook.md) and
+> [ecs-training.md](ecs-training.md). The Lambda scoring part below is still accurate.
 
 The default AWS design runs only when it is used. Nothing in the default stack
 bills by the hour: no load balancer, NAT gateway, VPC endpoint, notebook,

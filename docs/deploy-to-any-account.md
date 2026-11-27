@@ -10,8 +10,7 @@ in any region. Nothing in the repository is specific to one account.
 - AWS CLI v2 and Docker (for the image build).
 - The GitHub CLI (`gh`), logged in, if you want the variables set automatically.
   Otherwise the script prints the commands to run.
-- The region you want. The SageMaker MLflow App must be available in it; check
-  the list in `docs/aws-serverless.md`. Both Singapore (`ap-southeast-1`) and Sydney (`ap-southeast-2`) are supported and checked; the examples use Sydney, so replace it with `ap-southeast-1` for Singapore.
+- The region you want. Both Singapore (`ap-southeast-1`) and Sydney (`ap-southeast-2`) are supported and checked; the examples use Sydney, so replace it with `ap-southeast-1` for Singapore.
 
 ## 1. Connect GitHub to the account (once per account and region)
 
@@ -118,7 +117,7 @@ administrator's help in either route. Do not work around an SCP with long-lived 
 
 After "stack and images only", run the model pipeline from GitHub: Actions → **pipeline** → Run workflow
 (environment, region, `data_source`, `trials`). Nothing needs a laptop or a shell. The workflow builds the images
-for the commit, starts the Step Functions pipeline and follows it. Everything else runs in SageMaker:
+for the commit and starts the Step Functions pipeline (it does not wait: use the pipeline workflow with `action = status`). Every step runs as an ECS Fargate task (`TrainingBackend=ecs`, the default):
 
 | Step | What it does | Output in S3 |
 |---|---|---|
@@ -129,12 +128,12 @@ for the commit, starts the Step Functions pipeline and follows it. Everything el
 | Evaluate and publish | The one frozen evaluation of `@production`, then a write-once copy of the model. | `models/vN/` |
 
 Then run **deploy** (mode `auto` serves it, or choose "full deploy") to serve it on Lambda, and **verify** with `expect_model` ticked.
-Rehearse with `synthetic` first (about $0.05–0.20 of SageMaker time); a real PhysioNet run costs more and its search
+Rehearse with `synthetic` first (a few cents of Fargate time); a real PhysioNet run costs more and its search
 takes longer. Start with a small `limit` (for example 2000 stays per hospital) to check the download. The
 approval email needs the `ALERT_EMAIL` subscription to be confirmed. From a shell the same run is
 `DATA_SOURCE=synthetic TRIALS=6 WAIT=1 bash scripts/aws_deploy.sh pipeline`.
 
-### No SageMaker quota? Train on ECS Fargate instead
+### SageMaker quota? Not needed: training runs on ECS Fargate
 
 If AWS does not raise the SageMaker training quota (a new or free-plan account often cannot get it), set
 `TrainingBackend=ecs` (already the default in `infra/params/dev.json`) and run the **deploy** workflow again.
@@ -142,7 +141,9 @@ The pipeline then runs each step as an ECS Fargate task. See [ecs-training.md](e
 to check, the cost and the security notes, and [ecs-runbook.md](ecs-runbook.md) for the whole ECS demo (MLflow and
 Evidently on ECS, the power workflow that stops what bills, approval from GitHub, the predict demo).
 
-### First pipeline run: SageMaker quotas
+### Only if you choose `TrainingBackend=sagemaker`: SageMaker quotas
+
+Skip this section on the default ECS backend.
 
 A new AWS account has `0` as its limit for training instances, and the first job then fails at once with
 `ResourceLimitExceeded: ... 'ml.m5.xlarge for training job usage' is 0 Instances`. Before the first run, raise two quotas in
@@ -173,11 +174,11 @@ same table to the run summary:
 | KMS | the key is enabled with rotation on |
 | ECR | the three repositories each hold an image (tagged with the deployed commit) |
 | DynamoDB | the alert-ledger table is `ACTIVE` |
-| SageMaker MLflow App | status `Created` or `Updated` |
+| MLflow and Evidently (ECS) | each service is running and healthy, or switched off by the power workflow (desired 0) |
 | Step Functions | the approval pipeline is `ACTIVE` |
 | SNS and CloudWatch | the alert topic has a confirmed email subscription (WARN while it is still pending), and no alarm is firing |
 | Budget | the monthly budget exists |
-| IAM | the trainer, approver and deployer policies and the SageMaker role exist |
+| IAM | the trainer, approver and deployer policies and the task roles exist |
 | Scoring API (full deploy) | the Lambda function is `Active`, its URL needs IAM, and a signed `/health` call answers |
 
 WARN means it works but needs a person, for example confirming the alert email. FAIL exits non-zero.

@@ -51,9 +51,9 @@
 </div>
 <x-shape kind="arrow-right" style="width:32px;height:20px;background:#2c6285;align-self:center"></x-shape>
 <div style="flex:1;display:flex;flex-direction:column;gap:6px;background:#ffffff;padding:14px;border:1px solid #dcdfdc;border-radius:12px">
-<img src="/_blob/5c2e4297d1301dd949734f617021f8e3" alt="Amazon SageMaker AI" style="width:52px;height:52px;object-fit:contain">
-<p style="font-size:26px;font-weight:600">SageMaker</p>
-<p style="font-size:24px;line-height:1.3;color:#5b6870">spot jobs and MLflow App</p>
+<img src="/_blob/7cc1b007450e1eff9a7c4d29932add5b" alt="AWS Fargate" style="width:52px;height:52px;object-fit:contain">
+<p style="font-size:26px;font-weight:600">ECS Fargate</p>
+<p style="font-size:24px;line-height:1.3;color:#5b6870">Spot tasks, MLflow, Evidently</p>
 </div>
 </div>
 <div style="display:flex;gap:16px;align-items:stretch">
@@ -93,5 +93,5 @@
 <div style="display:flex;gap:10px;align-items:center"><img src="/_blob/06877701e1c99d72c3edcf603aa4c748" alt="AWS CloudTrail" style="width:40px;height:40px;object-fit:contain"><p style="font-size:24px">CloudTrail audit</p></div>
 </div>
 <p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#5b6870">Serverless design for ap-southeast-1 or ap-southeast-2, one CloudFormation stack per environment · icons: AWS Architecture Icons · 18</p>
-<aside>Top row: the hospital system sends a stay's history, signed with IAM, to the Lambda function URL. The scoring image loads the pinned model bundle from S3 and keeps only the alert ledger in DynamoDB. Middle row: GitHub Actions builds images tagged by commit into ECR; Step Functions runs prepare, tune and train on SageMaker spot, emails for approval, then runs the one frozen evaluation and a write-once publish. There are three image targets: scoring, Lambda and training. Alarms email the owner and retraining needs team approval. Fargate is an optional alternative. Before any real use, check data-residency and health-data rules in the hospital's country.</aside>
+<aside>Top row: the hospital system sends a stay's history, signed with IAM, to the Lambda function URL. The scoring image loads the pinned model bundle from S3 and keeps only the alert ledger in DynamoDB. Middle row: GitHub Actions builds images tagged by commit into ECR; Step Functions runs prepare, tune and train as ECS Fargate tasks (Spot for the long steps), emails for approval, then runs the one frozen evaluation and a write-once publish. There are three image targets: scoring, Lambda and training. Alarms email the owner and retraining needs team approval. MLflow and Evidently run on ECS with a PostgreSQL database; a power workflow stops them when idle. The first SageMaker design is still in the code but no environment uses it. Before any real use, check data-residency and health-data rules in the hospital's country.</aside>
 </section>

@@ -1,0 +1,135 @@
+{
+  "report_id": "LV-20261126-1412",
+  "report_revision": 5,
+  "status": "Final project submission",
+  "scope": "Aggregate project findings, methods, AWS architecture and experiment evidence; no patient observations, model binaries or credentials.",
+  "build_tools": {
+    "pandoc": "pandoc 3.13",
+    "pdf_engine": "XeLaTeX"
+  },
+  "aws_deployment": {
+    "status": "Deployed and tested",
+    "delivery": "GitHub Actions",
+    "compute_services": [
+      "ECS Fargate",
+      "AWS Lambda"
+    ],
+    "configuration_profile": "infra copy/params/dev.json",
+    "training_backend": "ecs",
+    "tracking_backend": "ecs",
+    "serving_mode": "lambda (default)",
+    "cloud_architecture_basis": "CloudFormation resources, conditions, environment parameters, deployment stages and application adapters",
+    "deployment_workflow_yaml_in_export": false,
+    "measurement_scope": "Numerical experiment metrics and latency belong to the recorded local research run; cloud latency and hosted run identifiers are not included."
+  },
+  "validation": {
+    "numeric_and_provenance": {
+      "numeric_tables_unchanged": 9,
+      "all_experiment_evidence_unchanged": true,
+      "local_file_links_checked": 59,
+      "experimental_source_hashes_checked": 34,
+      "deployment_source_hashes_checked": 22,
+      "cloudformation_templates_parsed": 15,
+      "resource_conditions_and_backend_choices_checked": true,
+      "reviewer_attribution_removed": true,
+      "privacy_portability_checks": "passed"
+    },
+    "pdf": {
+      "architecture_figure_pages": [
+        5,
+        6,
+        7
+      ],
+      "pages": 21,
+      "submission_framing_checked": true,
+      "text_extracted_from_every_page": true,
+      "architecture_pages_visually_checked": [
+        5,
+        6,
+        7
+      ],
+      "out_of_page_characters": 0
+    },
+    "html": {
+      "embedded_figures_checked": 6,
+      "all_six_images_loaded_in_browser": true,
+      "workflow_diagram_visually_checked_in_browser": true,
+      "final_submission_status_rendered": true,
+      "external_render_dependencies": 0,
+      "internal_anchor_links_checked": 69
+    },
+    "architecture_visuals": {
+      "source": "Official AWS Architecture Icons",
+      "source_url": "https://aws.amazon.com/architecture/icons/",
+      "release": "July 2026",
+      "unique_official_icons_verified": 15,
+      "editable_self_contained_svgs": 3,
+      "profile": "ECS training and MLflow; Evidently enabled; Lambda serving default",
+      "workflow_states_checked": 14,
+      "workflow_normal_transitions_checked": 13,
+      "ecs_state_to_task_mappings_checked": 4,
+      "shared_task_definition_revision_checked": true,
+      "per_step_modes_and_capacity_providers_checked": true,
+      "optional_prepare_branch_checked": true,
+      "approval_and_notifications_are_sns_not_ecs": true,
+      "error_routes_summarized_explicitly": true,
+      "updated_diagram_text_labels_checked": 115,
+      "text_overlaps": 0,
+      "clipped_text_labels": 0
+    }
+  },
+  "files": {
+    "report.md": {
+      "bytes": 53346,
+      "sha256": "51828fb7bbc0ff706c636781e959026d85b32f5701cf9285cb413f9a98afb4ec"
+    },
+    "report.pdf": {
+      "bytes": 2061266,
+      "sha256": "21f354ada34e58c3a3c1258ada0e320191b286ce0e766c27fee8087b5986913a"
+    },
+    "report.html": {
+      "bytes": 2687414,
+      "sha256": "ec30df08dbac6745aee3d93b8f2297f3bd0991cced65d8e0530bcab096829ca7"
+    },
+    "evidence.json": {
+      "bytes": 51706,
+      "sha256": "993444b65922c7acfdb7cb496f7281b03008dfb95aa30360a3e7a5109d51c04f"
+    },
+    "figures/aws-delivery-architecture.png": {
+      "bytes": 530778,
+      "sha256": "6955a37a4a849ad3f128464eb0d878c38e6999e99a97139521f6bb7862023990"
+    },
+    "figures/aws-runtime-architecture.png": {
+      "bytes": 521102,
+      "sha256": "0af15ab524ac940500b929ff32f9aa4caeda3382a14ecb0af4f7b349367f292b"
+    },
+    "figures/aws-step-functions-ecs-workflow.png": {
+      "bytes": 638588,
+      "sha256": "23a6f4a67f5ea052fad77d71956eb14fa44d363a7a64b1c04715a28fec7f0a49"
+    },
+    "figures/cohort-performance.png": {
+      "bytes": 94437,
+      "sha256": "1443a70329ead3550d838af3fa7d64323099d6f5d4a1aa5d4c55ca908d8abcdf"
+    },
+    "figures/external-monitoring.png": {
+      "bytes": 87471,
+      "sha256": "ebbb33906cd4a0184e9e07582544fbfe9abd4c1e5c70d06c50afb0612d0bb6a3"
+    },
+    "figures/external-operating-tradeoff.png": {
+      "bytes": 75207,
+      "sha256": "5cfb9ef5b1775722117c5973f2fc3f6f068cb0677a19627cbcb4cc1321097fd8"
+    },
+    "figures/aws-delivery-architecture.svg": {
+      "bytes": 54146,
+      "sha256": "a6f05aed7814e8cd8761839fb264ba4bd51c4d83b694fd17e0c04894ebbaa717"
+    },
+    "figures/aws-runtime-architecture.svg": {
+      "bytes": 54914,
+      "sha256": "aa9da0c7a47a81bf4ff59160ae9b7b743212270a232b6c1d49f4bb09e8662860"
+    },
+    "figures/aws-step-functions-ecs-workflow.svg": {
+      "bytes": 48632,
+      "sha256": "5654f880a7700c197e9f694d2d6d66a88d4c311459608c98f26173966381d27d"
+    }
+  }
+}

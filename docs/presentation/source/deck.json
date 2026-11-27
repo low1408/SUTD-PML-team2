@@ -1,1 +1,67 @@
-{"v":4,"createdOnFiles":{"v":1,"at":"2026-11-06T05:40:00Z"},"lists":"css","title":"Sepsis Early Warning — Final Presentation","order":["cover","problem","objective","data","hospitalflow","pipeline","features","ladder","eda","sirs","policy","results","generalisation","latent","explain","architecture","release","aws","monitoring","governance","lessons","close"],"sections":{"s1":{"description":"Why sepsis, what we predict and how we measure it","start":"cover"},"s2":{"description":"Data, split, pipeline, causal features and the modelling ladder","start":"data"},"s3":{"description":"Findings: EDA, SIRS baseline, alert policy, model comparison, cross-hospital test, latent states, explainability","start":"eda"},"s4":{"description":"Production: architecture, release process, AWS, monitoring, governance","start":"architecture"},"s5":{"description":"Lessons and next steps","start":"lessons"}},"cover":"cover","faces":{"inter":{"family":"Inter","href":"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"},"space-grotesk":{"family":"Space Grotesk","href":"https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap"}},"designSystems":[]}
+{
+ "v": 4,
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-11-06T05:40:00Z"
+ },
+ "lists": "css",
+ "title": "Sepsis Early Warning \u2014 Final Presentation",
+ "order": [
+  "cover",
+  "problem",
+  "objective",
+  "data",
+  "hospitalflow",
+  "pipeline",
+  "features",
+  "ladder",
+  "eda",
+  "sirs",
+  "policy",
+  "results",
+  "generalisation",
+  "stakes",
+  "explain",
+  "architecture",
+  "release",
+  "aws",
+  "monitoring",
+  "governance",
+  "lessons",
+  "close"
+ ],
+ "sections": {
+  "s1": {
+   "description": "Why sepsis, what we predict and how we measure it",
+   "start": "cover"
+  },
+  "s2": {
+   "description": "Data, split, pipeline, causal features and the modelling ladder",
+   "start": "data"
+  },
+  "s3": {
+   "description": "Findings: EDA, SIRS baseline, alert policy, model comparison, cross-hospital test, explainability",
+   "start": "eda"
+  },
+  "s4": {
+   "description": "Production: architecture, release process, AWS, monitoring, governance",
+   "start": "architecture"
+  },
+  "s5": {
+   "description": "Lessons and next steps",
+   "start": "lessons"
+  }
+ },
+ "cover": "cover",
+ "faces": {
+  "inter": {
+   "family": "Inter",
+   "href": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+  },
+  "space-grotesk": {
+   "family": "Space Grotesk",
+   "href": "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap"
+  }
+ },
+ "designSystems": []
+}

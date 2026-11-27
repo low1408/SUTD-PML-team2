@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alarm fatigue: SIRS rule against our model</title>
+<style>
+  :root { --bg:#0f2a33; --panel:#173a46; --ink:#f5f3ee; --muted:#c9d4d8; --alarm:#e8875a; --good:#5dd29a; --dot:#35515c; }
+  html, body { margin:0; background:var(--bg); color:var(--ink); font-family:Inter, system-ui, sans-serif; }
+  main { max-width:1280px; margin:0 auto; padding:28px 24px 20px; }
+  h1 { font-size:30px; margin:0 0 4px; font-weight:600; }
+  .sub { color:var(--muted); font-size:16px; margin-bottom:18px; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+  .card { background:var(--panel); border-radius:16px; padding:20px 22px 18px; }
+  .card h2 { font-size:22px; margin:0 0 2px; font-weight:600; }
+  .card .rate { color:var(--muted); font-size:15px; margin-bottom:14px; }
+  .ward { display:grid; grid-template-columns:repeat(5, 1fr); gap:12px; }
+  .bed { height:62px; border-radius:12px; background:var(--dot); display:flex; align-items:center; justify-content:center; font-size:14px; color:var(--muted); transition:background .15s, transform .15s; }
+  .bed.alarm { background:var(--alarm); color:#fff; transform:scale(1.07); }
+  .bed.real { background:var(--good); color:#06281a; transform:scale(1.07); font-weight:600; }
+  .count { margin-top:16px; font-size:44px; font-weight:600; }
+  .count small { font-size:16px; color:var(--muted); font-weight:400; margin-left:8px; }
+  .clock { margin:16px 0 0; text-align:center; color:var(--muted); font-size:18px; }
+  .note { margin-top:10px; color:var(--muted); font-size:14px; text-align:center; }
+  @media (max-width: 900px) { .row { grid-template-columns:1fr; } }
+  @media (prefers-reduced-motion: reduce) { .bed { transition:none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>One ward, 24 hours, the same 20 patients</h1>
+  <div class="sub">Orange: an alarm a nurse must check. Green: a real early warning for a septic patient. Press <b>R</b> to replay.</div>
+  <div class="row">
+    <section class="card">
+      <h2>SIRS rule (2 or more criteria)</h2>
+      <div class="rate">about 1.98 false alerts per non-septic patient-day, 10 times the budget</div>
+      <div class="ward" id="sirs"></div>
+      <div class="count"><span id="sirsCount">0</span><small>alarms to check</small></div>
+    </section>
+    <section class="card">
+      <h2>Our model (random forest, calibrated)</h2>
+      <div class="rate">0.14 to 0.18 false alerts per non-septic patient-day, inside the 0.2 budget</div>
+      <div class="ward" id="model"></div>
+      <div class="count"><span id="modelCount">0</span><small>alarms to check</small></div>
+    </section>
+  </div>
+  <div class="clock" id="clock">Hour 0</div>
+  <div class="note">Illustration, not real patients: alarm rates come from our validation and test results; the pattern is random with a fixed seed.</div>
+</main>
+<script>
+(function () {
+  var BEDS = 20, HOURS = 24, STEP_MS = 800, SEPTIC = [3, 11];       // two septic patients in the ward
+  var RATES = { sirs: 1.98, model: 0.16 };                           // false alerts per non-septic patient-day
+  var COOLDOWN = 6;
+  var seed;
+  function rand() { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; }
+  function build(id) {
+    var el = document.getElementById(id); el.innerHTML = '';
+    for (var i = 0; i < BEDS; i++) { var b = document.createElement('div'); b.className = 'bed'; b.textContent = 'Bed ' + (i + 1); el.appendChild(b); }
+    return el.children;
+  }
+  var timer;
+  function run() {
+    clearInterval(timer); seed = 42;
+    var wards = { sirs: build('sirs'), model: build('model') }, counts = { sirs: 0, model: 0 }, last = { sirs: [], model: [] }, hour = 0;
+    ['sirs', 'model'].forEach(function (k) { for (var i = 0; i < BEDS; i++) last[k][i] = -99; });
+    document.getElementById('sirsCount').textContent = 0; document.getElementById('modelCount').textContent = 0;
+    timer = setInterval(function () {
+      hour += 1; document.getElementById('clock').textContent = 'Hour ' + hour + ' of ' + HOURS;
+      ['sirs', 'model'].forEach(function (k) {
+        for (var i = 0; i < BEDS; i++) {
+          var bed = wards[k][i]; bed.className = 'bed';
+          var septic = SEPTIC.indexOf(i) >= 0, p = RATES[k] / 24;
+          var real = septic && ((k === 'model' && hour === 8 + i % 3) || (k === 'sirs' && hour === 14 + i % 3));   // the model warns earlier
+          var alarm = !septic && rand() < p && hour - last[k][i] >= COOLDOWN;
+          if (real) { bed.className = 'bed real'; bed.textContent = 'Septic: warned'; counts[k] += 1; last[k][i] = hour; }
+          else if (alarm) { bed.className = 'bed alarm'; bed.textContent = 'Alarm'; counts[k] += 1; last[k][i] = hour; }
+          else { bed.textContent = 'Bed ' + (i + 1); }
+        }
+        document.getElementById(k + 'Count').textContent = counts[k];
+      });
+      if (hour >= HOURS) clearInterval(timer);
+    }, STEP_MS);
+  }
+  document.addEventListener('keydown', function (e) { if (e.key === 'r' || e.key === 'R') run(); });
+  run();
+})();
+</script>
+</body>
+</html>

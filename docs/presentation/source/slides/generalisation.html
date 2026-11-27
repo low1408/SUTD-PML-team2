@@ -11,11 +11,15 @@
 <p style="font-family:'Space Grotesk', sans-serif;font-size:96px;font-weight:600;color:#e8875a">0.255</p>
 </div>
 </div>
-<div style="flex:1;height:440px;display:flex;align-items:center;justify-content:center;background:#173a46;border:3px dashed #8fb8d0;border-radius:16px">
-<p style="font-size:28px;color:#c9e0ec;width:640px;text-align:center">[Insert chart: alerts per day and early detection, A internal test vs B]</p>
+<div style="flex:1;display:flex;align-items:center;justify-content:center;background:#173a46;border-radius:16px;padding:32px"><div style="display:flex;flex-direction:column;gap:26px;width:700px"><div style="display:flex;flex-direction:column;gap:10px"><p style="font-size:26px;color:#c9e0ec">Early detection of septic stays</p>
+<div style="display:flex;align-items:center;gap:16px"><span style="width:90px;font-size:22px;color:#c9d4d8">A test</span><div style="height:34px;width:471px;background:#8fb8d0;border-radius:6px"></div><span style="font-size:26px">54.3%</span></div>
+<div style="display:flex;align-items:center;gap:16px"><span style="width:90px;font-size:22px;color:#c9d4d8">B test</span><div style="height:34px;width:407px;background:#e8875a;border-radius:6px"></div><span style="font-size:26px">47.0%</span></div></div><div style="display:flex;flex-direction:column;gap:10px"><p style="font-size:26px;color:#c9e0ec">False alerts per non-septic patient-day (budget 0.2)</p>
+<div style="display:flex;align-items:center;gap:16px"><span style="width:90px;font-size:22px;color:#c9d4d8">A test</span><div style="height:34px;width:452px;background:#8fb8d0;border-radius:6px"></div><span style="font-size:26px">0.174</span></div>
+<div style="display:flex;align-items:center;gap:16px"><span style="width:90px;font-size:22px;color:#c9d4d8">B test</span><div style="height:34px;width:364px;background:#e8875a;border-radius:6px"></div><span style="font-size:26px">0.140</span></div></div><div style="display:flex;flex-direction:column;gap:10px"><p style="font-size:26px;color:#c9e0ec">Utility</p>
+<div style="display:flex;align-items:center;gap:16px"><span style="width:90px;font-size:22px;color:#c9d4d8">A test</span><div style="height:34px;width:456px;background:#8fb8d0;border-radius:6px"></div><span style="font-size:26px">0.351</span></div>
+<div style="display:flex;align-items:center;gap:16px"><span style="width:90px;font-size:22px;color:#c9d4d8">B test</span><div style="height:34px;width:332px;background:#e8875a;border-radius:6px"></div><span style="font-size:26px">0.255</span></div></div></div></div>
 </div>
-</div>
-<p style="font-size:30px;line-height:1.45;width:1600px">Utility fell from 0.351 to 0.255 and early recall from 54.3% to 47.0%, but false alerts stayed inside the budget (0.140) and SIRS scored -0.014 at hospital B. [Main reason for the drop: team to confirm]</p>
+<p style="font-size:30px;line-height:1.45;width:1600px">Utility fell from 0.351 to 0.255 and early recall from 54.3% to 47.0%, but false alerts stayed inside the budget (0.140) and SIRS scored -0.014 at hospital B. Likely reasons: B records far fewer blood gases, its blood pressure runs higher, and fewer of its stays turn septic.</p>
 <p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#c9d4d8">Both scored once, with the frozen model and threshold · 13</p>
 <aside>This is the slide most sepsis projects skip. Cross-hospital generalisation was the hardest part of the original Challenge too. Expect calibration to run high at B: the model was calibrated where 8.8% of stays are septic, and B has 5.7%. Report the drop; do not retune on B.</aside>
 </section>

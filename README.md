@@ -11,10 +11,11 @@ retain useful performance at another hospital under a limited notification budge
 **Status of the results.** Every command runs end to end on an explicitly
 synthetic software fixture. Synthetic scores demonstrate software behaviour only.
 On the real data this repository holds the SIRS baseline results and the
-hospital A against B comparison (both below). Trained-model results on the real
-data are not committed yet: they come from the commands under
-[Tune, evaluate and write the report](#tune-evaluate-and-write-the-report), and
-the report draft is [reports/final/report.md](reports/final/report.md).
+hospital A against B comparison (both below). The trained model was run on the real
+data on AWS (tune, train, approve, frozen evaluation); its results are in
+[reports/final/report.md](reports/final/report.md), section 7, and in the MLflow runs of that
+deployment. The commands under
+[Tune, evaluate and write the report](#tune-evaluate-and-write-the-report) recreate them locally.
 
 Start here:
 
@@ -564,27 +565,22 @@ alert-budget threshold and never alerting, on the internal test and hospital B),
 is tuned on the test splits. `fig_failure_examples.png` shows individual stays: check it before it leaves the
 private folder. The report draft with the 11 required sections is `reports/final/report.md`.
 
-## Deploy to AWS (serverless)
+## Deploy to AWS
 
-The default AWS design costs nothing while idle (roughly $2-5 a month plus a
-few cents per training run; estimate in the guide). Training runs as a
-SageMaker AI training job on spot capacity, runs and models are tracked in the
-serverless SageMaker AI MLflow App, and scoring runs on AWS Lambda behind an
-IAM-authenticated HTTPS URL. The same images and commands are used as locally.
-Not deployed yet: deployment needs the L06 owner's approval of account, region,
-budget and data plan. Full guide: [docs/aws-serverless.md](docs/aws-serverless.md).
+The AWS design is deployed and has been run end to end on the real data. The default training backend is ECS Fargate
+(Spot for the long steps), MLflow and Evidently run on ECS with a PostgreSQL database, and scoring runs on AWS Lambda behind an
+IAM-authenticated HTTPS URL. Everything is started from GitHub Actions (no AWS keys are stored); a power workflow stops the
+always-on tools so nothing bills while idle. The older SageMaker path is still in the code but is not used by any environment.
 
-```bash
-pip install -e ".[aws,tracking,sagemaker]"
-bash scripts/aws_deploy.sh stack        # S3, KMS, ECR, MLflow App, roles, alarms, budget
-bash scripts/aws_deploy.sh images       # lambda, training and scoring images
-bash scripts/aws_deploy.sh data         # combined.parquet + splits.csv (after approval)
-bash scripts/aws_deploy.sh train        # SageMaker training job -> @candidate in the MLflow App
-bash scripts/aws_deploy.sh promote 1 "Reviewer Name"
-bash scripts/aws_deploy.sh publish      # @production -> S3 with its SHA-256
-bash scripts/aws_deploy.sh serve        # Lambda scoring API
-bash scripts/aws_deploy.sh call GET /model
-```
+Where to start:
+
+- **What to click, in order:** [docs/RUN-ORDER.md](docs/RUN-ORDER.md)
+- **What each workflow and option does:** [docs/WORKFLOWS.md](docs/WORKFLOWS.md)
+- **All the documents, by purpose:** [docs/README.md](docs/README.md)
+- **Design diagram:** [docs/design/sepsis-warning-pipeline.html](docs/design/sepsis-warning-pipeline.html), section 6
+
+From a shell the same steps are `bash scripts/aws_deploy.sh <stack|images|pipeline|promote|publish|serve|call>`; the workflows call
+these commands.
 
 Locally, the images can be built and checked without AWS:
 `docker build --target lambda .`, `docker build --target training .`, and
@@ -684,7 +680,7 @@ latency test is in place. What is still open:
 7. Examine very early alarms and measurement outages. Document censored onset
    assumptions and post-onset rows in the challenge task.
 8. Full feature tables are built in memory; there is no feature cache.
-9. The AWS design is not deployed (see [Deploy to AWS](#deploy-to-aws-serverless)).
+9. The AWS design is deployed for one environment (dev) only; staging and prod have parameters but have not been run (see [Deploy to AWS](#deploy-to-aws)).
 
 Task owners and status are in [TEAM-TASKS.md](TEAM-TASKS.md); the summary of who
 did what is in [contributions.md](contributions.md).

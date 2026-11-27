@@ -1,0 +1,1343 @@
+{
+  "report_id": "LV-20261126-1412",
+  "report_date": "2026-11-26",
+  "report_revision": 5,
+  "aws_deployment": {
+    "status": "Deployed and tested",
+    "delivery": "GitHub Actions",
+    "compute_services": [
+      "ECS Fargate",
+      "AWS Lambda"
+    ],
+    "configuration_profile": "infra copy/params/dev.json",
+    "training_backend": "ecs",
+    "tracking_backend": "ecs",
+    "serving_mode": "lambda (default)",
+    "cloud_architecture_basis": "CloudFormation resources, conditions, environment parameters, deployment stages and application adapters",
+    "deployment_workflow_yaml_in_export": false,
+    "measurement_scope": "Numerical experiment metrics and latency belong to the recorded local research run; cloud latency and hosted run identifiers are not included."
+  },
+  "source_run": "artifacts/local-verification-20261126-1412",
+  "tests": {
+    "passed": 145,
+    "seconds": 42.375,
+    "skipped": 0
+  },
+  "dataset": {
+    "source": "data/physionet-complete-20261114",
+    "stays": 40336,
+    "hours": 1552210,
+    "hard_schema_checks_passed": true,
+    "source_parquet_sha256": "85f044951122bff3a18adaa1a5b8e86b620a752e14e6553b4c241b10706bba85",
+    "splits_csv_sha256": "c71b3b34f59a0bf0f5de724d94de211c65f0fee83d0f72a712fa6b77f358c800",
+    "saved_and_training_splits_match": true
+  },
+  "splits": [
+    {
+      "split": "train",
+      "stays": 11183,
+      "septic_stays": 984,
+      "hours": 435449
+    },
+    {
+      "split": "calibration",
+      "stays": 3051,
+      "septic_stays": 269,
+      "hours": 117195
+    },
+    {
+      "split": "validation",
+      "stays": 3051,
+      "septic_stays": 268,
+      "hours": 118668
+    },
+    {
+      "split": "internal_test",
+      "stays": 3051,
+      "septic_stays": 269,
+      "hours": 118903
+    },
+    {
+      "split": "external_test",
+      "stays": 20000,
+      "septic_stays": 1142,
+      "hours": 761995
+    }
+  ],
+  "model": {
+    "name": "hist_gradient_boosting",
+    "threshold": 0.06,
+    "cooldown_hours": 6,
+    "validation_alarm_budget": 0.2,
+    "sha256": "962da9cfbb65c8e73be2b2bf592bbe61d9e31ae789d9c7a0cab7a50717beecfb",
+    "feature_count": 276
+  },
+  "cohort_metrics": {
+    "validation": {
+      "model": "hist_gradient_boosting",
+      "patients": 3051,
+      "hours": 118668,
+      "positive_hour_fraction": 0.02172447500589881,
+      "average_precision": 0.14238637857462647,
+      "auroc": 0.8322634467880615,
+      "brier_score": 0.019876846718938287,
+      "normalized_hourly_utility": 0.38704520813897786,
+      "alert_events": 2181,
+      "false_alert_events_nonseptic": 793,
+      "nonseptic_patient_days": 4284.5,
+      "false_alert_events_per_nonseptic_patient_day": 0.1850857743027191,
+      "septic_patients": 268,
+      "eligible_septic_patients_for_lead_time": 244,
+      "left_censored_septic_patients": 24,
+      "early_detection_recall": 0.5819672131147541,
+      "median_inferred_lead_hours": 8.0,
+      "threshold": 0.06
+    },
+    "internal_test": {
+      "patients": 3051,
+      "hours": 118903,
+      "positive_hour_fraction": 0.02167312851652187,
+      "average_precision": 0.12867291227792257,
+      "auroc": 0.8265915535395618,
+      "brier_score": 0.01993599889187605,
+      "normalized_hourly_utility": 0.3665313276255566,
+      "alert_events": 2046,
+      "false_alert_events_nonseptic": 743,
+      "nonseptic_patient_days": 4285.875,
+      "false_alert_events_per_nonseptic_patient_day": 0.1733601656604544,
+      "septic_patients": 269,
+      "eligible_septic_patients_for_lead_time": 245,
+      "left_censored_septic_patients": 23,
+      "early_detection_recall": 0.5428571428571428,
+      "median_inferred_lead_hours": 9.0
+    },
+    "external_test": {
+      "patients": 20000,
+      "hours": 761995,
+      "positive_hour_fraction": 0.014147074455869133,
+      "average_precision": 0.062022047248960835,
+      "auroc": 0.763528141183083,
+      "brier_score": 0.013681365891624426,
+      "normalized_hourly_utility": 0.23403409265107053,
+      "alert_events": 8319,
+      "false_alert_events_nonseptic": 3744,
+      "nonseptic_patient_days": 28939.541666666668,
+      "false_alert_events_per_nonseptic_patient_day": 0.129373161576793,
+      "septic_patients": 1142,
+      "eligible_septic_patients_for_lead_time": 906,
+      "left_censored_septic_patients": 223,
+      "early_detection_recall": 0.4392935982339956,
+      "median_inferred_lead_hours": 9.0
+    }
+  },
+  "hourly_classification_metrics": {
+    "external_test": {
+      "hourly_tp": 3521,
+      "hourly_fp": 38957,
+      "hourly_fn": 7259,
+      "hourly_tn": 712258,
+      "hourly_accuracy": 0.939348683390311,
+      "hourly_precision": 0.08288996657093084,
+      "hourly_recall": 0.32662337662337665,
+      "hourly_specificity": 0.9481413443554775,
+      "hourly_f1": 0.13222426677682225,
+      "hourly_alert_rate": 0.0557457726100565,
+      "no_predicted_positives": false
+    },
+    "internal_test": {
+      "hourly_tp": 1169,
+      "hourly_fp": 8419,
+      "hourly_fn": 1408,
+      "hourly_tn": 107907,
+      "hourly_accuracy": 0.9173528001816607,
+      "hourly_precision": 0.1219232373800584,
+      "hourly_recall": 0.45362824990298795,
+      "hourly_specificity": 0.927625810222994,
+      "hourly_f1": 0.19219071105630908,
+      "hourly_alert_rate": 0.08063715801956216,
+      "no_predicted_positives": false
+    }
+  },
+  "validation_candidates": [
+    {
+      "model": "constant_prior",
+      "patients": 3051,
+      "hours": 118668,
+      "positive_hour_fraction": 0.02172447500589881,
+      "average_precision": 0.02172447500589881,
+      "auroc": 0.5,
+      "brier_score": 0.021252531898025104,
+      "normalized_hourly_utility": 0.0,
+      "alert_events": 0,
+      "false_alert_events_nonseptic": 0,
+      "nonseptic_patient_days": 4284.5,
+      "false_alert_events_per_nonseptic_patient_day": 0.0,
+      "septic_patients": 268,
+      "eligible_septic_patients_for_lead_time": 244,
+      "left_censored_septic_patients": 24,
+      "early_detection_recall": 0.0,
+      "median_inferred_lead_hours": null,
+      "threshold": 1.01
+    },
+    {
+      "model": "logistic_regression",
+      "patients": 3051,
+      "hours": 118668,
+      "positive_hour_fraction": 0.02172447500589881,
+      "average_precision": 0.10472189853099843,
+      "auroc": 0.7954036691122915,
+      "brier_score": 0.02040592670483839,
+      "normalized_hourly_utility": 0.24993696578502878,
+      "alert_events": 1597,
+      "false_alert_events_nonseptic": 645,
+      "nonseptic_patient_days": 4284.5,
+      "false_alert_events_per_nonseptic_patient_day": 0.15054265375189638,
+      "septic_patients": 268,
+      "eligible_septic_patients_for_lead_time": 244,
+      "left_censored_septic_patients": 24,
+      "early_detection_recall": 0.4713114754098361,
+      "median_inferred_lead_hours": 8.0,
+      "threshold": 0.06
+    },
+    {
+      "model": "random_forest",
+      "patients": 3051,
+      "hours": 118668,
+      "positive_hour_fraction": 0.02172447500589881,
+      "average_precision": 0.128226858048863,
+      "auroc": 0.818635878198618,
+      "brier_score": 0.02005413020462909,
+      "normalized_hourly_utility": 0.3580608154106051,
+      "alert_events": 2131,
+      "false_alert_events_nonseptic": 793,
+      "nonseptic_patient_days": 4284.5,
+      "false_alert_events_per_nonseptic_patient_day": 0.1850857743027191,
+      "septic_patients": 268,
+      "eligible_septic_patients_for_lead_time": 244,
+      "left_censored_septic_patients": 24,
+      "early_detection_recall": 0.5532786885245902,
+      "median_inferred_lead_hours": 9.0,
+      "threshold": 0.06
+    },
+    {
+      "model": "hist_gradient_boosting",
+      "patients": 3051,
+      "hours": 118668,
+      "positive_hour_fraction": 0.02172447500589881,
+      "average_precision": 0.14238637857462647,
+      "auroc": 0.8322634467880615,
+      "brier_score": 0.019876846718938287,
+      "normalized_hourly_utility": 0.38704520813897786,
+      "alert_events": 2181,
+      "false_alert_events_nonseptic": 793,
+      "nonseptic_patient_days": 4284.5,
+      "false_alert_events_per_nonseptic_patient_day": 0.1850857743027191,
+      "septic_patients": 268,
+      "eligible_septic_patients_for_lead_time": 244,
+      "left_censored_septic_patients": 24,
+      "early_detection_recall": 0.5819672131147541,
+      "median_inferred_lead_hours": 8.0,
+      "threshold": 0.06
+    }
+  ],
+  "baseline_metrics": [
+    {
+      "model": "sirs",
+      "split": "validation",
+      "patients": 3051,
+      "septic_patients": 268,
+      "hours": 118668,
+      "positive_hour_fraction": 0.02172447500589881,
+      "hourly_precision": 0.03328673351330505,
+      "hourly_recall": 0.5356865787432118,
+      "hourly_f1": 0.0626787092089139,
+      "hourly_specificity": 0.6545180463433543,
+      "hourly_accuracy": 0.6519364950955607,
+      "hourly_alert_rate": 0.3496140492803452,
+      "no_predicted_positives": false,
+      "normalized_hourly_utility": 0.0841973223065489,
+      "alert_events": 10157,
+      "false_alert_events_per_nonseptic_patient_day": 1.982028241335045,
+      "early_detection_recall": 0.7786885245901639,
+      "median_inferred_lead_hours": 8.0,
+      "average_precision": 0.03173563129741494,
+      "auroc": 0.6154063826245401,
+      "eligible_septic_patients_for_lead_time": 244,
+      "left_censored_septic_patients": 24,
+      "hourly_tp": 1381,
+      "hourly_fp": 40107,
+      "hourly_fn": 1197,
+      "hourly_tn": 75983
+    },
+    {
+      "model": "always_no",
+      "split": "validation",
+      "patients": 3051,
+      "septic_patients": 268,
+      "hours": 118668,
+      "positive_hour_fraction": 0.02172447500589881,
+      "hourly_precision": 0.0,
+      "hourly_recall": 0.0,
+      "hourly_f1": 0.0,
+      "hourly_specificity": 1.0,
+      "hourly_accuracy": 0.9782755249941012,
+      "hourly_alert_rate": 0.0,
+      "no_predicted_positives": true,
+      "normalized_hourly_utility": 0.0,
+      "alert_events": 0,
+      "false_alert_events_per_nonseptic_patient_day": 0.0,
+      "early_detection_recall": 0.0,
+      "median_inferred_lead_hours": null,
+      "average_precision": 0.02172447500589881,
+      "auroc": 0.5,
+      "eligible_septic_patients_for_lead_time": 244,
+      "left_censored_septic_patients": 24,
+      "hourly_tp": 0,
+      "hourly_fp": 0,
+      "hourly_fn": 2578,
+      "hourly_tn": 116090
+    },
+    {
+      "model": "sirs",
+      "split": "internal_test",
+      "patients": 3051,
+      "septic_patients": 269,
+      "hours": 118903,
+      "positive_hour_fraction": 0.02167312851652187,
+      "hourly_precision": 0.03339862879529873,
+      "hourly_recall": 0.5292976329064804,
+      "hourly_f1": 0.06283253103623004,
+      "hourly_specificity": 0.6606433643381531,
+      "hourly_accuracy": 0.6577966914207379,
+      "hourly_alert_rate": 0.3434732513056861,
+      "no_predicted_positives": false,
+      "normalized_hourly_utility": 0.08732142181648549,
+      "alert_events": 10114,
+      "false_alert_events_per_nonseptic_patient_day": 1.971592731939219,
+      "early_detection_recall": 0.7591836734693878,
+      "median_inferred_lead_hours": 8.0,
+      "average_precision": 0.03258072110579343,
+      "auroc": 0.6240326242900348,
+      "eligible_septic_patients_for_lead_time": 245,
+      "left_censored_septic_patients": 23,
+      "hourly_tp": 1364,
+      "hourly_fp": 39476,
+      "hourly_fn": 1213,
+      "hourly_tn": 76850
+    },
+    {
+      "model": "always_no",
+      "split": "internal_test",
+      "patients": 3051,
+      "septic_patients": 269,
+      "hours": 118903,
+      "positive_hour_fraction": 0.02167312851652187,
+      "hourly_precision": 0.0,
+      "hourly_recall": 0.0,
+      "hourly_f1": 0.0,
+      "hourly_specificity": 1.0,
+      "hourly_accuracy": 0.9783268714834781,
+      "hourly_alert_rate": 0.0,
+      "no_predicted_positives": true,
+      "normalized_hourly_utility": 0.0,
+      "alert_events": 0,
+      "false_alert_events_per_nonseptic_patient_day": 0.0,
+      "early_detection_recall": 0.0,
+      "median_inferred_lead_hours": null,
+      "average_precision": 0.02167312851652187,
+      "auroc": 0.5,
+      "eligible_septic_patients_for_lead_time": 245,
+      "left_censored_septic_patients": 23,
+      "hourly_tp": 0,
+      "hourly_fp": 0,
+      "hourly_fn": 2577,
+      "hourly_tn": 116326
+    },
+    {
+      "model": "sirs",
+      "split": "external_test",
+      "patients": 20000,
+      "septic_patients": 1142,
+      "hours": 761995,
+      "positive_hour_fraction": 0.014147074455869133,
+      "hourly_precision": 0.02763181644973025,
+      "hourly_recall": 0.5112244897959184,
+      "hourly_f1": 0.052429789177258546,
+      "hourly_specificity": 0.7418408844338837,
+      "hourly_accuracy": 0.7385783371281964,
+      "hourly_alert_rate": 0.26173925025754763,
+      "no_predicted_positives": false,
+      "normalized_hourly_utility": -0.013558573749885774,
+      "alert_events": 50469,
+      "false_alert_events_per_nonseptic_patient_day": 1.5176121483149496,
+      "early_detection_recall": 0.7549668874172185,
+      "median_inferred_lead_hours": 8.0,
+      "average_precision": 0.02758340585832238,
+      "auroc": 0.6651305078722377,
+      "eligible_septic_patients_for_lead_time": 906,
+      "left_censored_septic_patients": 223,
+      "hourly_tp": 5511,
+      "hourly_fp": 193933,
+      "hourly_fn": 5269,
+      "hourly_tn": 557282
+    },
+    {
+      "model": "always_no",
+      "split": "external_test",
+      "patients": 20000,
+      "septic_patients": 1142,
+      "hours": 761995,
+      "positive_hour_fraction": 0.014147074455869133,
+      "hourly_precision": 0.0,
+      "hourly_recall": 0.0,
+      "hourly_f1": 0.0,
+      "hourly_specificity": 1.0,
+      "hourly_accuracy": 0.9858529255441308,
+      "hourly_alert_rate": 0.0,
+      "no_predicted_positives": true,
+      "normalized_hourly_utility": 0.0,
+      "alert_events": 0,
+      "false_alert_events_per_nonseptic_patient_day": 0.0,
+      "early_detection_recall": 0.0,
+      "median_inferred_lead_hours": null,
+      "average_precision": 0.014147074455869133,
+      "auroc": 0.5,
+      "eligible_septic_patients_for_lead_time": 906,
+      "left_censored_septic_patients": 223,
+      "hourly_tp": 0,
+      "hourly_fp": 0,
+      "hourly_fn": 10780,
+      "hourly_tn": 751215
+    }
+  ],
+  "comparisons": {
+    "external_model_minus_internal_model": {
+      "average_precision": -0.06665086502896174,
+      "auroc": -0.06306341235647883,
+      "normalized_hourly_utility": -0.1324972349744861,
+      "early_detection_recall": -0.10356354462314721,
+      "false_alert_events_per_nonseptic_patient_day": -0.04398700408366141
+    },
+    "external_false_alert_reduction_vs_sirs_percent": 91.47521573806326,
+    "external_sirs_budget_multiple": 7.588060741574748
+  },
+  "monitoring": {
+    "internal-test": {
+      "windows": {
+        "fast": 58,
+        "slow": 5,
+        "fast_tail_hours_not_evaluated": 1432,
+        "slow_tail_hours_not_evaluated": 18782
+      },
+      "families": {
+        "schema": {
+          "speed": "fast",
+          "owner": "Edwin",
+          "windows": 58,
+          "ok": 58,
+          "warn": 0,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "No action."
+        },
+        "missingness": {
+          "speed": "fast",
+          "owner": "Jawad",
+          "windows": 58,
+          "ok": 46,
+          "warn": 12,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "Log it; review at the weekly team check."
+        },
+        "input_drift": {
+          "speed": "fast",
+          "owner": "Jawad",
+          "windows": 58,
+          "ok": 33,
+          "warn": 25,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "Log it; review at the weekly team check."
+        },
+        "new_variable": {
+          "speed": "fast",
+          "owner": "Jawad",
+          "windows": 58,
+          "ok": 58,
+          "warn": 0,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "No action."
+        },
+        "score_drift": {
+          "speed": "fast",
+          "owner": "Kaiyuan",
+          "windows": 58,
+          "ok": 52,
+          "warn": 6,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "Log it; review at the weekly team check."
+        },
+        "alert_rate": {
+          "speed": "fast",
+          "owner": "Kaiyuan",
+          "windows": 58,
+          "ok": 49,
+          "warn": 9,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "Log it; review at the weekly team check."
+        },
+        "calibration": {
+          "speed": "slow",
+          "owner": "Kaiyuan",
+          "windows": 5,
+          "ok": 5,
+          "warn": 0,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "No action."
+        },
+        "discrimination": {
+          "speed": "slow",
+          "owner": "Mashie",
+          "windows": 5,
+          "ok": 4,
+          "warn": 1,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "Log it; review at the weekly team check."
+        },
+        "utility": {
+          "speed": "slow",
+          "owner": "Mashie",
+          "windows": 5,
+          "ok": 4,
+          "warn": 0,
+          "alert": 1,
+          "insufficient_data": 0,
+          "first_alert_window": 2,
+          "response": "Owner reviews within one working day using the runbook in docs/monitoring-plan.md. No automatic retraining: retraining or a threshold change needs team approval, a new frozen bundle and a new monitoring reference."
+        },
+        "early_detection": {
+          "speed": "slow",
+          "owner": "Mashie",
+          "windows": 5,
+          "ok": 4,
+          "warn": 1,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "Log it; review at the weekly team check."
+        },
+        "alert_burden": {
+          "speed": "slow",
+          "owner": "Kaiyuan",
+          "windows": 5,
+          "ok": 5,
+          "warn": 0,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "No action."
+        },
+        "subgroup_gap": {
+          "speed": "slow",
+          "owner": "Kaiyuan",
+          "windows": 5,
+          "ok": 5,
+          "warn": 0,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "No action."
+        }
+      }
+    },
+    "external-test": {
+      "windows": {
+        "fast": 376,
+        "slow": 38,
+        "fast_tail_hours_not_evaluated": 1002,
+        "slow_tail_hours_not_evaluated": 1114
+      },
+      "families": {
+        "schema": {
+          "speed": "fast",
+          "owner": "Edwin",
+          "windows": 376,
+          "ok": 376,
+          "warn": 0,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "No action."
+        },
+        "missingness": {
+          "speed": "fast",
+          "owner": "Jawad",
+          "windows": 376,
+          "ok": 0,
+          "warn": 1,
+          "alert": 375,
+          "insufficient_data": 0,
+          "first_alert_window": 2,
+          "response": "Owner reviews within one working day using the runbook in docs/monitoring-plan.md. No automatic retraining: retraining or a threshold change needs team approval, a new frozen bundle and a new monitoring reference."
+        },
+        "input_drift": {
+          "speed": "fast",
+          "owner": "Jawad",
+          "windows": 376,
+          "ok": 0,
+          "warn": 63,
+          "alert": 313,
+          "insufficient_data": 0,
+          "first_alert_window": 2,
+          "response": "Owner reviews within one working day using the runbook in docs/monitoring-plan.md. No automatic retraining: retraining or a threshold change needs team approval, a new frozen bundle and a new monitoring reference."
+        },
+        "new_variable": {
+          "speed": "fast",
+          "owner": "Jawad",
+          "windows": 376,
+          "ok": 0,
+          "warn": 376,
+          "alert": 0,
+          "insufficient_data": 0,
+          "first_alert_window": null,
+          "response": "Log it; review at the weekly team check."
+        },
+        "score_drift": {
+          "speed": "fast",
+          "owner": "Kaiyuan",
+          "windows": 376,
+          "ok": 74,
+          "warn": 163,
+          "alert": 139,
+          "insufficient_data": 0,
+          "first_alert_window": 7,
+          "response": "Owner reviews within one working day using the runbook in docs/monitoring-plan.md. No automatic retraining: retraining or a threshold change needs team approval, a new frozen bundle and a new monitoring reference."
+        },
+        "alert_rate": {
+          "speed": "fast",
+          "owner": "Kaiyuan",
+          "windows": 376,
+          "ok": 211,
+          "warn": 145,
+          "alert": 20,
+          "insufficient_data": 0,
+          "first_alert_window": 21,
+          "response": "Owner reviews within one working day using the runbook in docs/monitoring-plan.md. No automatic retraining: retraining or a threshold change needs team approval, a new frozen bundle and a new monitoring reference."
+        },
+        "calibration": {
+          "speed": "slow",
+          "owner": "Kaiyuan",
+          "windows": 38,
+          "ok": 32,
+          "warn": 5,
+          "alert": 0,
+          "insufficient_data": 1,
+          "first_alert_window": null,
+          "response": "Log it; review at the weekly team check."
+        },
+        "discrimination": {
+          "speed": "slow",
+          "owner": "Mashie",
+          "windows": 38,
+          "ok": 7,
+          "warn": 4,
+          "alert": 26,
+          "insufficient_data": 1,
+          "first_alert_window": 1,
+          "response": "Owner reviews within one working day using the runbook in docs/monitoring-plan.md. No automatic retraining: retraining or a threshold change needs team approval, a new frozen bundle and a new monitoring reference."
+        },
+        "utility": {
+          "speed": "slow",
+          "owner": "Mashie",
+          "windows": 38,
+          "ok": 7,
+          "warn": 7,
+          "alert": 23,
+          "insufficient_data": 1,
+          "first_alert_window": 1,
+          "response": "Owner reviews within one working day using the runbook in docs/monitoring-plan.md. No automatic retraining: retraining or a threshold change needs team approval, a new frozen bundle and a new monitoring reference."
+        },
+        "early_detection": {
+          "speed": "slow",
+          "owner": "Mashie",
+          "windows": 38,
+          "ok": 16,
+          "warn": 12,
+          "alert": 9,
+          "insufficient_data": 1,
+          "first_alert_window": 4,
+          "response": "Owner reviews within one working day using the runbook in docs/monitoring-plan.md. No automatic retraining: retraining or a threshold change needs team approval, a new frozen bundle and a new monitoring reference."
+        },
+        "alert_burden": {
+          "speed": "slow",
+          "owner": "Kaiyuan",
+          "windows": 38,
+          "ok": 37,
+          "warn": 0,
+          "alert": 0,
+          "insufficient_data": 1,
+          "first_alert_window": null,
+          "response": "No action."
+        },
+        "subgroup_gap": {
+          "speed": "slow",
+          "owner": "Kaiyuan",
+          "windows": 38,
+          "ok": 29,
+          "warn": 1,
+          "alert": 0,
+          "insufficient_data": 8,
+          "first_alert_window": null,
+          "response": "Log it; review at the weekly team check."
+        }
+      }
+    }
+  },
+  "latency": {
+    "server": {
+      "url": "http://127.0.0.1:18761",
+      "model_name": "hist_gradient_boosting",
+      "synthetic_model": false,
+      "feature_count": 276
+    },
+    "client": {
+      "platform": "macOS-26.7.3-arm64-arm-64bit",
+      "python": "3.12.14",
+      "cpu_count": 15
+    },
+    "first_request_ms": 61.5,
+    "scenarios": [
+      {
+        "hours_per_request": 24,
+        "concurrency": 1,
+        "requests": 50,
+        "failures": 0,
+        "throughput_rps": 61.14,
+        "p50_ms": 14.9,
+        "p95_ms": 26.4,
+        "p99_ms": 30.4,
+        "mean_ms": 16.3,
+        "max_ms": 30.4
+      },
+      {
+        "hours_per_request": 24,
+        "concurrency": 4,
+        "requests": 50,
+        "failures": 0,
+        "throughput_rps": 61.68,
+        "p50_ms": 60.7,
+        "p95_ms": 88.6,
+        "p99_ms": 108.2,
+        "mean_ms": 64.4,
+        "max_ms": 108.2
+      },
+      {
+        "hours_per_request": 24,
+        "concurrency": 8,
+        "requests": 50,
+        "failures": 0,
+        "throughput_rps": 61.49,
+        "p50_ms": 124.8,
+        "p95_ms": 195.9,
+        "p99_ms": 229.1,
+        "mean_ms": 128.0,
+        "max_ms": 229.1
+      },
+      {
+        "hours_per_request": 72,
+        "concurrency": 1,
+        "requests": 50,
+        "failures": 0,
+        "throughput_rps": 69.2,
+        "p50_ms": 13.5,
+        "p95_ms": 16.0,
+        "p99_ms": 61.8,
+        "mean_ms": 14.4,
+        "max_ms": 61.8
+      },
+      {
+        "hours_per_request": 72,
+        "concurrency": 4,
+        "requests": 50,
+        "failures": 0,
+        "throughput_rps": 61.92,
+        "p50_ms": 61.5,
+        "p95_ms": 89.9,
+        "p99_ms": 123.3,
+        "mean_ms": 64.2,
+        "max_ms": 123.3
+      },
+      {
+        "hours_per_request": 72,
+        "concurrency": 8,
+        "requests": 50,
+        "failures": 0,
+        "throughput_rps": 64.34,
+        "p50_ms": 128.3,
+        "p95_ms": 178.2,
+        "p99_ms": 210.0,
+        "mean_ms": 122.9,
+        "max_ms": 210.0
+      },
+      {
+        "hours_per_request": 336,
+        "concurrency": 1,
+        "requests": 50,
+        "failures": 0,
+        "throughput_rps": 70.29,
+        "p50_ms": 13.7,
+        "p95_ms": 15.0,
+        "p99_ms": 34.9,
+        "mean_ms": 14.2,
+        "max_ms": 34.9
+      },
+      {
+        "hours_per_request": 336,
+        "concurrency": 4,
+        "requests": 50,
+        "failures": 0,
+        "throughput_rps": 63.03,
+        "p50_ms": 61.4,
+        "p95_ms": 83.4,
+        "p99_ms": 101.7,
+        "mean_ms": 63.1,
+        "max_ms": 101.7
+      },
+      {
+        "hours_per_request": 336,
+        "concurrency": 8,
+        "requests": 50,
+        "failures": 0,
+        "throughput_rps": 54.76,
+        "p50_ms": 141.1,
+        "p95_ms": 219.5,
+        "p99_ms": 254.9,
+        "mean_ms": 144.3,
+        "max_ms": 254.9
+      }
+    ],
+    "note": "Synthetic stays; latency includes HTTP, validation, feature building, scoring and policy."
+  },
+  "positive_case": {
+    "cohort": "B",
+    "selected_for_functional_demonstration": true,
+    "last_hour": {
+      "hour": 6.0,
+      "probability": 0.07770351104741265,
+      "hourly_positive": 1,
+      "alert_event": 1
+    },
+    "threshold": 0.06,
+    "label_verified_positive_during_case_construction": true
+  },
+  "reproducibility": {
+    "matches_supplied_validation_and_held_out_metrics": true,
+    "comparison_rtol": 1e-10,
+    "comparison_atol": 1e-12,
+    "git_commit": null,
+    "source_parquet_sha256": "85f044951122bff3a18adaa1a5b8e86b620a752e14e6553b4c241b10706bba85",
+    "splits_csv_sha256": "c71b3b34f59a0bf0f5de724d94de211c65f0fee83d0f72a712fa6b77f358c800",
+    "monitoring_reference_sha256": "ece18e4562fc0572ad6792965b27c731e3dc6ec693dd5b60b4670a5236fa062a",
+    "mlflow_run_id": "c101dd87fbd144a9bffe21c0fd67fbaa",
+    "python": "3.12.14",
+    "packages": {
+      "numpy": "2.5.4",
+      "pandas": "3.1.1",
+      "scipy": "1.18.1",
+      "scikit-learn": "1.7.2",
+      "joblib": "1.6.0",
+      "pyarrow": "24.0.0",
+      "mlflow": "3.18.0",
+      "fastapi": "0.162.7",
+      "uvicorn": "0.54.0",
+      "pandera": "0.35.0",
+      "httpx": "0.28.1"
+    },
+    "report_time_source_config_snapshot_sha256": "2abc8233cf78f722cdf17d60c07ab309ebe35e8fb11ec9f6617be7499ec8a080",
+    "report_time_source_config_file_hashes": {
+      ".github/workflows/tests.yml": "f3cbaa36196f96190d9cd38efca217067b0b7593e85863ec86de9e6725247ff9",
+      "Dockerfile": "41a0a822f28ffc483546c1d21cc3543b5c53f89117c88b024774bb9a8011b621",
+      ".dockerignore": "94d753ca04c28781d38c9d390edca174bbc931de3fdda84d7d7d87873cf386aa",
+      "pyproject.toml": "ac48931d7a3fdeea0aa74f8c8aafa194610219e45fe4b625dba72c0f3c116c2a",
+      "requirements.txt": "7db855b5cbbcddfc9ddf71bd6241564c338c31b893d608e7a064a49beda0a506",
+      "dvc.yaml": "46f48cd2c49e4b2fe4a832bc9e65dfbeaa4711adff9e35582ffbf740214bfeed",
+      "src/sepsis_warning/__init__.py": "09cca90eaa1fb30ad435c0d00a3b85ff65e8cb39c609280a972c22bd089635de",
+      "src/sepsis_warning/__main__.py": "6d8b7d7846a845059d7a3107143f11131f63c5511d669b44085b15ec5e3d2279",
+      "src/sepsis_warning/api.py": "2ef5646d47878bbc3ca8731a7855f82a3010ab6576238ba54613c4417aa648af",
+      "src/sepsis_warning/baselines.py": "e43b43f9fee06fa3bc3585fff247c6507e3bb26387758b0cd88b4589b0bf4439",
+      "src/sepsis_warning/cli.py": "51e08a05d011ddafb7ab00258bc0c1b6c67f4d1571c0ce72371793ea0920d097",
+      "src/sepsis_warning/data.py": "e6facf3c193cfecacf02649792282cfab54a848481d475135ee7c4f1a2a2c55a",
+      "src/sepsis_warning/features.py": "6ee3894c5c43f7ce84a3b80e56806a3a568053b2ad01fb164fe2f2379e6e8c04",
+      "src/sepsis_warning/hmm.py": "3078510bb62efbcba9216b9d51277f9ab6b48062fab9fd06fbd5016b8ed1b1a9",
+      "src/sepsis_warning/hospital_comparison.py": "46561bb9efaafa3cd1cd4affb1c38874bf2e6e23b10afeeca932614e519bf185",
+      "src/sepsis_warning/missingness.py": "c109778b4253a8e13a09074f7b7ad09e0a5f30ff998a2af8809769b46d9eb766",
+      "src/sepsis_warning/modeling.py": "09f3bd4965999a6a93b6c84295eced46f95ea06536d1231359b4f1dd37df46e7",
+      "src/sepsis_warning/monitoring.py": "347d88314b30aed523de3f52cd09566c6c3ef5fffb04f29998e9a71e0084c041",
+      "src/sepsis_warning/policy.py": "7c12de25d156899bfae8c0eac4e6a10f20f1a68e7c3dda293ca44756946d55db",
+      "src/sepsis_warning/prepare.py": "1a356ead9f751de52ef127703545dd386be4e9c7a6023e3a59d1403c1e7eb015",
+      "src/sepsis_warning/report.py": "a670eeae7f26c209273af2c6ba3f307b8ff7d93435ba0a72885ce5dd1f59063f",
+      "src/sepsis_warning/schema.py": "0af798d153ce3e44d6fe0ff95f02ed5e6ac6bbdc09e0c4eada7ccaeb462b48f7",
+      "src/sepsis_warning/scoring.py": "1b9d37fe97f0db8cbb035dce4b147d68b5f5e71fae17a7c1af34fcd3e09d570e",
+      "src/sepsis_warning/service.py": "eda02a154159abee38e80978f3c17b14739d44873e15976e8a7b49a5a409baa7",
+      "src/sepsis_warning/signature.py": "f86796f1714705413aeebf8455791644d48fac0d5fa3c54b09b4899b16d3ec7e",
+      "src/sepsis_warning/sirs_failures.py": "da6b823d75d0e70fa28f435239fd4b6ec6d1ce2d65dd92e9d47aea76de9fcfde",
+      "src/sepsis_warning/splits.py": "e91754247df8cd9692658c420e117c95add1f237ba5d1c349c109717d43da37e",
+      "src/sepsis_warning/tracking.py": "c1f67f852bdcffff7dd0d3659954a3cf205183edbddddce44639e629602a7c25",
+      "src/sepsis_warning/ward.py": "c59c3c324d62a4caaa9482628ce63d6aa0fde8ef2f519c68e6ef47af9faac0b5",
+      "infra/cloudformation/artifacts.yaml": "2d3fe73b3e87e3f2bc06a3e87c526271d6a3f8f9774b4e4e03f5b6d3c467335b",
+      "infra/cloudformation/monitoring.yaml": "a50a6bd696b94311de07d0cfcfb1e7553807ac332a585279ba5f729c63ee8114",
+      "infra/cloudformation/network.yaml": "7ffa3914e0d1a7d9b20e2114a6a79af03bf2465e41fc3ca48d4114b4dda8912d",
+      "infra/cloudformation/root.yaml": "645bb8315e2dac6ba046ea8f4254875a862c872f69d8af3bd1a317a4e7abb599",
+      "infra/cloudformation/service.yaml": "98b1f11354c77aaa118942b4d737164f3f7670361cdbe4bedc3aea79ecabc4c4"
+    }
+  },
+  "privacy": "Aggregate results only. No raw records, original stay identifiers, request observations, patient-level predictions, model files or credentials are included.",
+  "synthetic_control_probes": {
+    "scope": "Small synthetic adversarial controls only; no real-data run outputs or source files changed.",
+    "monitoring_split_mismatch": {
+      "training_seed": 7,
+      "accepted_monitoring_seed": 42,
+      "monitor_validation_stays_already_in_training": 8,
+      "monitor_validation_stays_from_original_internal_test": 6,
+      "guard_rejected_input": false
+    },
+    "external_hospital_assignment": {
+      "external_b_stays_accepted_into_training": 30,
+      "guard_rejected_input": false
+    },
+    "feature_semantics_change": {
+      "change": "Multiply HR__last by ten without renaming columns",
+      "startup_status": "ok",
+      "feature_column_hash_unchanged": true,
+      "maximum_absolute_probability_change": 0.9997959318940064,
+      "guard_rejected_change": false
+    },
+    "interpretation": "These probes expose missing safeguards. They do not show contamination in the correctly configured full-cohort run."
+  },
+  "docker": {
+    "image_tag": "sepsis-warning:local-verification-20261126-1412",
+    "id": "sha256:85af6667f6e8ff1aedca328b932b07da7a24cbc4c3186ab57da3fb1cbca4e1ce",
+    "architecture": "arm64",
+    "os": "linux",
+    "python": "3.12.16",
+    "packages": {
+      "numpy": "2.5.4",
+      "pandas": "3.1.1",
+      "scikit-learn": "1.7.2",
+      "fastapi": "0.165.0",
+      "uvicorn": "0.54.0"
+    },
+    "full_cohort_training_in_container": false,
+    "synthetic_smoke_passed": true
+  },
+  "architecture_visuals": {
+    "icon_source": "https://aws.amazon.com/architecture/icons/",
+    "icon_release": "July 2026",
+    "icon_package_sha256": "d2d166c453526471749d520e0db022c459abef759d2946cf2dd1d1c992dc6526",
+    "icons": {
+      "cfn": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Management-Tools/48/Arch_AWS-CloudFormation_48.svg",
+        "sha256": "37a07518c8163299a791387f613cf399ed3a6beb3c52158eff1a45c78726b5d0"
+      },
+      "cloud": {
+        "entry": "Architecture-Group-Icons_07312026/AWS-Cloud_32.svg",
+        "sha256": "8caea10d6cd7e8f2047b061874ef8f014e74717b2897ccbc23b305e3fa083ed7"
+      },
+      "cw": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Management-Tools/48/Arch_Amazon-CloudWatch_48.svg",
+        "sha256": "9920f2db47fed7e2437c329e8b231edcb0f55db82f02413afa3f2d546c30d552"
+      },
+      "ddb": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Databases/48/Arch_Amazon-DynamoDB_48.svg",
+        "sha256": "c336f941abcb25012c6e36fd884123a868d0727cf916d6f2348b0fb0a053f2f0"
+      },
+      "deploy": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Developer-Tools/48/Arch_AWS-CodeDeploy_48.svg",
+        "sha256": "73d353f2527dc65dd33b9b9f55e6d1649a718d1e41394fa40a1ad5de29daa603"
+      },
+      "ecr": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Containers/48/Arch_Amazon-Elastic-Container-Registry_48.svg",
+        "sha256": "bf829eab882165f4fb850bab032e5c81312cb579e2ad880372f206936db4a2be"
+      },
+      "events": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Application-Integration/48/Arch_Amazon-EventBridge_48.svg",
+        "sha256": "78f7fead59316ad6ac38cc262582bec81fc6649d0f6fdd5327708c08bede65e9"
+      },
+      "fargate": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Containers/48/Arch_AWS-Fargate_48.svg",
+        "sha256": "2b1b00e6e702e9bd1a1cc8bba077e05f214889c145186b9a44c28a74943b38ce"
+      },
+      "firehose": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Analytics/48/Arch_Amazon-Data-Firehose_48.svg",
+        "sha256": "8bba0a1b04c3953d6a2dd45326dc5b13117aad63b10367e48a7cce6642e4b180"
+      },
+      "iam": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Security-Identity/48/Arch_AWS-Identity-and-Access-Management_48.svg",
+        "sha256": "81954dcfb86d5f410f7084345e459cd5c7ca1d76032d34f771ad379c94e062b6"
+      },
+      "lambda": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Compute/48/Arch_AWS-Lambda_48.svg",
+        "sha256": "4a376abd2d67f8916791458810f3640b12fcfa71079154e0aed0974b92e58cdb"
+      },
+      "rds": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Databases/48/Arch_Amazon-RDS_48.svg",
+        "sha256": "5ef651fae418df2ceade6bf9cbf779d8c8f2ec35c6ff47b23934b10722b6790e"
+      },
+      "s3": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Storage/48/Arch_Amazon-Simple-Storage-Service_48.svg",
+        "sha256": "bb0df5b7ca52da7323888ed588baefa1c68a23b5776f325bc8ec29825c185a31"
+      },
+      "sfn": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Application-Integration/48/Arch_AWS-Step-Functions_48.svg",
+        "sha256": "c1bb81d6504d283c6b31cbd9516fa6b8364010ea3c30ae614507114ca34192ad"
+      },
+      "sns": {
+        "entry": "Architecture-Service-Icons_07312026/Arch_Application-Integration/48/Arch_Amazon-Simple-Notification-Service_48.svg",
+        "sha256": "f0fbc241cafdf4d6d06b0f46a7bba9325339480c61fd5f62195e3db63c7582b9"
+      }
+    },
+    "diagrams": [
+      {
+        "svg": "figures/aws-delivery-architecture.svg",
+        "png": "figures/aws-delivery-architecture.png",
+        "viewbox": [
+          1400,
+          1500
+        ],
+        "png_pixels": [
+          2800,
+          3000
+        ],
+        "embedded_official_icons": 11,
+        "text_labels_checked": 56,
+        "text_overlaps": 0,
+        "clipped_text_labels": 0
+      },
+      {
+        "svg": "figures/aws-runtime-architecture.svg",
+        "png": "figures/aws-runtime-architecture.png",
+        "viewbox": [
+          1400,
+          1500
+        ],
+        "png_pixels": [
+          2800,
+          3000
+        ],
+        "embedded_official_icons": 11
+      },
+      {
+        "svg": "figures/aws-step-functions-ecs-workflow.svg",
+        "png": "figures/aws-step-functions-ecs-workflow.png",
+        "viewbox": [
+          1100,
+          1550
+        ],
+        "png_pixels": [
+          2200,
+          3100
+        ],
+        "embedded_official_icons": 7,
+        "text_labels_checked": 59,
+        "text_overlaps": 0,
+        "clipped_text_labels": 0
+      }
+    ],
+    "workflow_mapping": {
+      "source": "infra copy/cloudformation/pipeline-ecs.yaml",
+      "source_sha256": "5c5b94bb0e2d8e6ced7d28e8609296476c1817f484b25560659a2d758bb62cd2",
+      "state_machine": "sepsis-dev-training-ecs",
+      "all_states": [
+        "RegisterTaskDefinition",
+        "CheckPrepare",
+        "PrepareData",
+        "PreparedOk",
+        "Tune",
+        "TunedOk",
+        "Train",
+        "TrainedOk",
+        "WaitForApproval",
+        "EvaluateAndPublish",
+        "PublishedOk",
+        "NotifyPublished",
+        "NotifyFailure",
+        "Stopped"
+      ],
+      "shared_task_family": "sepsis-dev-training",
+      "entrypoint": [
+        "python",
+        "-m",
+        "sepsis_warning.ecs_job"
+      ],
+      "task_runs": [
+        {
+          "state": "PrepareData",
+          "task_definition_path": "$.taskdef.TaskDefinition.TaskDefinitionArn",
+          "container": "trainer",
+          "mode": "prepare",
+          "mode_explicit_override": true,
+          "capacity_provider": "FARGATE",
+          "next_state": "PreparedOk",
+          "timeout_seconds": 7200
+        },
+        {
+          "state": "Tune",
+          "task_definition_path": "$.taskdef.TaskDefinition.TaskDefinitionArn",
+          "container": "trainer",
+          "mode": "tune",
+          "mode_explicit_override": true,
+          "capacity_provider": "FARGATE_SPOT",
+          "next_state": "TunedOk",
+          "timeout_seconds": 10800
+        },
+        {
+          "state": "Train",
+          "task_definition_path": "$.taskdef.TaskDefinition.TaskDefinitionArn",
+          "container": "trainer",
+          "mode": "train",
+          "mode_explicit_override": false,
+          "capacity_provider": "FARGATE_SPOT",
+          "next_state": "TrainedOk",
+          "timeout_seconds": 3600
+        },
+        {
+          "state": "EvaluateAndPublish",
+          "task_definition_path": "$.taskdef.TaskDefinition.TaskDefinitionArn",
+          "container": "trainer",
+          "mode": "evaluate_publish",
+          "mode_explicit_override": true,
+          "capacity_provider": "FARGATE",
+          "next_state": "PublishedOk",
+          "timeout_seconds": 1800
+        }
+      ],
+      "approval_resource": "arn:aws:states:::sns:publish.waitForTaskToken",
+      "error_routes_summarized": true
+    },
+    "external_render_dependencies": 0,
+    "interpretation": "Development ECS training/MLflow and Lambda scoring; alternatives and conditions explicit."
+  },
+  "deployment_source_identity": {
+    "templates_parsed": 15,
+    "template_resource_inventory": {
+      "mlflow-ecs.yaml": {
+        "MlflowSecurityGroup": "AWS::EC2::SecurityGroup",
+        "DbSecurityGroup": "AWS::EC2::SecurityGroup",
+        "MlflowEgress": "AWS::EC2::SecurityGroupEgress",
+        "MlflowDbEgress": "AWS::EC2::SecurityGroupEgress",
+        "DbSubnetGroup": "AWS::RDS::DBSubnetGroup",
+        "Database": "AWS::RDS::DBInstance",
+        "Namespace": "AWS::ServiceDiscovery::PrivateDnsNamespace",
+        "DiscoveryService": "AWS::ServiceDiscovery::Service",
+        "LogGroup": "AWS::Logs::LogGroup",
+        "ExecutionRole": "AWS::IAM::Role",
+        "TaskRole": "AWS::IAM::Role",
+        "TaskDefinition": "AWS::ECS::TaskDefinition",
+        "Service": "AWS::ECS::Service"
+      },
+      "mlops.yaml": {
+        "MlflowAppRole": "AWS::IAM::Role",
+        "MlflowApp": "AWS::SageMaker::MlflowApp",
+        "SageMakerExecutionRole": "AWS::IAM::Role",
+        "TrainerPolicy": "AWS::IAM::ManagedPolicy",
+        "ApproverPolicy": "AWS::IAM::ManagedPolicy",
+        "DeployerPolicy": "AWS::IAM::ManagedPolicy"
+      },
+      "apigw.yaml": {
+        "Api": "AWS::ApiGateway::RestApi",
+        "ProxyResource": "AWS::ApiGateway::Resource",
+        "ProxyMethod": "AWS::ApiGateway::Method",
+        "Deployment": "AWS::ApiGateway::Deployment",
+        "Stage": "AWS::ApiGateway::Stage",
+        "InvokePermission": "AWS::Lambda::Permission",
+        "WebAcl": "AWS::WAFv2::WebACL",
+        "WebAclAssociation": "AWS::WAFv2::WebACLAssociation"
+      },
+      "observability.yaml": {
+        "FirehoseRole": "AWS::IAM::Role",
+        "PredictionLogStream": "AWS::KinesisFirehose::DeliveryStream",
+        "LogsToFirehoseRole": "AWS::IAM::Role",
+        "PredictionSubscription": "AWS::Logs::SubscriptionFilter",
+        "DriftLogGroup": "AWS::Logs::LogGroup",
+        "DriftRole": "AWS::IAM::Role",
+        "DriftFunction": "AWS::Lambda::Function",
+        "DriftScheduleRule": "AWS::Events::Rule",
+        "DriftSchedulePermission": "AWS::Lambda::Permission",
+        "DriftAlarm": "AWS::CloudWatch::Alarm",
+        "DriftJobFailedAlarm": "AWS::CloudWatch::Alarm",
+        "RetrainRole": "AWS::IAM::Role",
+        "RetrainOnDriftRule": "AWS::Events::Rule"
+      },
+      "github-oidc.yaml": {
+        "GitHubOidcProvider": "AWS::IAM::OIDCProvider",
+        "DeployRole": "AWS::IAM::Role"
+      },
+      "service.yaml": {
+        "Cluster": "AWS::ECS::Cluster",
+        "ApplicationLogGroup": "AWS::Logs::LogGroup",
+        "TaskExecutionRole": "AWS::IAM::Role",
+        "TaskRole": "AWS::IAM::Role",
+        "LoadBalancerSecurityGroup": "AWS::EC2::SecurityGroup",
+        "HttpsLoadBalancerIngress": "AWS::EC2::SecurityGroupIngress",
+        "TaskSecurityGroup": "AWS::EC2::SecurityGroup",
+        "LoadBalancerToTasksEgress": "AWS::EC2::SecurityGroupEgress",
+        "LoadBalancer": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+        "TargetGroup": "AWS::ElasticLoadBalancingV2::TargetGroup",
+        "HttpListener": "AWS::ElasticLoadBalancingV2::Listener",
+        "HttpsListener": "AWS::ElasticLoadBalancingV2::Listener",
+        "TaskDefinition": "AWS::ECS::TaskDefinition",
+        "ScoringService": "AWS::ECS::Service"
+      },
+      "serverless.yaml": {
+        "FunctionLogGroup": "AWS::Logs::LogGroup",
+        "FunctionRole": "AWS::IAM::Role",
+        "CanaryErrorsAlarm": "AWS::CloudWatch::Alarm",
+        "CanaryDurationAlarm": "AWS::CloudWatch::Alarm",
+        "ScoringFunction": "AWS::Serverless::Function",
+        "ExternalInvokeUrlPermission": "AWS::Lambda::Permission",
+        "ExternalInvokeFunctionPermission": "AWS::Lambda::Permission"
+      },
+      "network.yaml": {
+        "Vpc": "AWS::EC2::VPC",
+        "InternetGateway": "AWS::EC2::InternetGateway",
+        "VpcGatewayAttachment": "AWS::EC2::VPCGatewayAttachment",
+        "PublicSubnetA": "AWS::EC2::Subnet",
+        "PublicSubnetB": "AWS::EC2::Subnet",
+        "PrivateSubnetA": "AWS::EC2::Subnet",
+        "PrivateSubnetB": "AWS::EC2::Subnet",
+        "PublicRouteTable": "AWS::EC2::RouteTable",
+        "PublicDefaultRoute": "AWS::EC2::Route",
+        "PublicSubnetARouteAssociation": "AWS::EC2::SubnetRouteTableAssociation",
+        "PublicSubnetBRouteAssociation": "AWS::EC2::SubnetRouteTableAssociation",
+        "PrivateRouteTable": "AWS::EC2::RouteTable",
+        "PrivateSubnetARouteAssociation": "AWS::EC2::SubnetRouteTableAssociation",
+        "PrivateSubnetBRouteAssociation": "AWS::EC2::SubnetRouteTableAssociation",
+        "EndpointSecurityGroup": "AWS::EC2::SecurityGroup",
+        "EcrApiEndpoint": "AWS::EC2::VPCEndpoint",
+        "EcrDockerEndpoint": "AWS::EC2::VPCEndpoint",
+        "LogsEndpoint": "AWS::EC2::VPCEndpoint",
+        "S3Endpoint": "AWS::EC2::VPCEndpoint",
+        "DynamoDbEndpoint": "AWS::EC2::VPCEndpoint"
+      },
+      "pipeline-ecs.yaml": {
+        "PipelineRole": "AWS::IAM::Role",
+        "TrainingPipeline": "AWS::StepFunctions::StateMachine"
+      },
+      "evidently-ecs.yaml": {
+        "UiSecurityGroup": "AWS::EC2::SecurityGroup",
+        "LogGroup": "AWS::Logs::LogGroup",
+        "ExecutionRole": "AWS::IAM::Role",
+        "UiTaskRole": "AWS::IAM::Role",
+        "ReportTaskRole": "AWS::IAM::Role",
+        "UiTaskDefinition": "AWS::ECS::TaskDefinition",
+        "UiService": "AWS::ECS::Service",
+        "ReportTaskDefinition": "AWS::ECS::TaskDefinition",
+        "DriftAlarm": "AWS::CloudWatch::Alarm"
+      },
+      "root.yaml": {
+        "Network": "AWS::CloudFormation::Stack",
+        "Artifacts": "AWS::CloudFormation::Stack",
+        "Mlops": "AWS::CloudFormation::Stack",
+        "Serverless": "AWS::CloudFormation::Stack",
+        "EcsPlatform": "AWS::CloudFormation::Stack",
+        "MlflowEcs": "AWS::CloudFormation::Stack",
+        "EvidentlyEcs": "AWS::CloudFormation::Stack",
+        "PipelineEcs": "AWS::CloudFormation::Stack",
+        "Pipeline": "AWS::CloudFormation::Stack",
+        "Observability": "AWS::CloudFormation::Stack",
+        "PrivateApi": "AWS::CloudFormation::Stack",
+        "Service": "AWS::CloudFormation::Stack",
+        "Monitoring": "AWS::CloudFormation::Stack"
+      },
+      "pipeline.yaml": {
+        "PipelineRole": "AWS::IAM::Role",
+        "TrainingPipeline": "AWS::StepFunctions::StateMachine"
+      },
+      "artifacts.yaml": {
+        "ArtifactKey": "AWS::KMS::Key",
+        "ArtifactKeyAlias": "AWS::KMS::Alias",
+        "ArtifactBucket": "AWS::S3::Bucket",
+        "ArtifactBucketPolicy": "AWS::S3::BucketPolicy",
+        "AccessLogBucket": "AWS::S3::Bucket",
+        "AccessLogBucketPolicy": "AWS::S3::BucketPolicy",
+        "EcrRepository": "AWS::ECR::Repository",
+        "LambdaRepository": "AWS::ECR::Repository",
+        "TrainingRepository": "AWS::ECR::Repository",
+        "ToolsRepository": "AWS::ECR::Repository",
+        "StateTable": "AWS::DynamoDB::Table"
+      },
+      "ecs-platform.yaml": {
+        "Vpc": "AWS::EC2::VPC",
+        "InternetGateway": "AWS::EC2::InternetGateway",
+        "VpcGatewayAttachment": "AWS::EC2::VPCGatewayAttachment",
+        "PublicSubnetA": "AWS::EC2::Subnet",
+        "PublicSubnetB": "AWS::EC2::Subnet",
+        "PublicRouteTable": "AWS::EC2::RouteTable",
+        "PublicDefaultRoute": "AWS::EC2::Route",
+        "PublicSubnetARouteAssociation": "AWS::EC2::SubnetRouteTableAssociation",
+        "PublicSubnetBRouteAssociation": "AWS::EC2::SubnetRouteTableAssociation",
+        "TaskSecurityGroup": "AWS::EC2::SecurityGroup",
+        "Cluster": "AWS::ECS::Cluster",
+        "TrainingLogGroup": "AWS::Logs::LogGroup",
+        "ExecutionRole": "AWS::IAM::Role",
+        "TaskRole": "AWS::IAM::Role",
+        "ApproverTaskRole": "AWS::IAM::Role"
+      },
+      "monitoring.yaml": {
+        "AlarmTopic": "AWS::SNS::Topic",
+        "AlarmEmailSubscription": "AWS::SNS::Subscription",
+        "CpuAlarm": "AWS::CloudWatch::Alarm",
+        "MemoryAlarm": "AWS::CloudWatch::Alarm",
+        "Target5xxAlarm": "AWS::CloudWatch::Alarm",
+        "TargetResponseTimeAlarm": "AWS::CloudWatch::Alarm",
+        "UnhealthyTargetsAlarm": "AWS::CloudWatch::Alarm",
+        "LambdaErrorsAlarm": "AWS::CloudWatch::Alarm",
+        "LambdaThrottlesAlarm": "AWS::CloudWatch::Alarm",
+        "LambdaDurationAlarm": "AWS::CloudWatch::Alarm",
+        "MonthlyBudget": "AWS::Budgets::Budget"
+      }
+    },
+    "source_file_hashes": {
+      "infra copy/cloudformation/apigw.yaml": "c4f4b8a9224242a4cf7727000804598c4a1dbe51d4f530cc71a99ffd5987421e",
+      "infra copy/cloudformation/artifacts.yaml": "1ef975e98dff4f3ec39b193cf3fee7fdb6d70d5914fc320463afc5385d8cdd20",
+      "infra copy/cloudformation/ecs-platform.yaml": "ae07a067b767590762b6c11f8bb943cbdfcf37329c1cbeeee9d0770be1185b1c",
+      "infra copy/cloudformation/evidently-ecs.yaml": "47cc7616c6a5dc4df7f049e0edf5deebc01a66a0e524aeebcc0f402d83c8dead",
+      "infra copy/cloudformation/github-oidc.yaml": "04225e161f7b2eb217acd460c43558193b81cc1ff4029b2f00a246a4626431c5",
+      "infra copy/cloudformation/mlflow-ecs.yaml": "0b02c4ceedc0bdc7a483eb9b2686a847fc8f3d0e63c5f202b46e0216cdec12f4",
+      "infra copy/cloudformation/mlops.yaml": "98e0770a4a3650f1e1e9739ba74d8e1ad9177c2a39ed973d207a628637b238cd",
+      "infra copy/cloudformation/monitoring.yaml": "b55423b8fefab6220dd2293cca4fd0344717d9fb1881fa37c1ede58d1d5c3c47",
+      "infra copy/cloudformation/network.yaml": "7ffa3914e0d1a7d9b20e2114a6a79af03bf2465e41fc3ca48d4114b4dda8912d",
+      "infra copy/cloudformation/observability.yaml": "b586f51b1344a9f074602786feaf6abc1935a5ebcac5d74e2c09781df123a096",
+      "infra copy/cloudformation/pipeline-ecs.yaml": "5c5b94bb0e2d8e6ced7d28e8609296476c1817f484b25560659a2d758bb62cd2",
+      "infra copy/cloudformation/pipeline.yaml": "4d0be653e38ac330ffd88974f4a2a0d21c97b45b065fabf6e04f4c2b1ef8ebae",
+      "infra copy/cloudformation/root.yaml": "0d6ad6555b042e6f014ac666e5d91cb08d3e51ba9bf8ecfd13a607a4bf67e1e4",
+      "infra copy/cloudformation/serverless.yaml": "485411e732d92bee99d18e18aa52c188a7232e1f1b3e3ff7f415c60d90920fa9",
+      "infra copy/cloudformation/service.yaml": "4abcabfdd1a4726452458b48dc0a2eaf3b173e45d989d8faee19d46a2abe3ad8",
+      "infra copy/params/dev.json": "9e0d5dc55d92cad4e5fb1b28ba7b5f3bdca3300071c800fecf3ac9bfcca6c9eb",
+      "infra copy/bootstrap/github-oidc.yaml": "5602113eb3c2993b27e4aa71df103dd26415dc48ae48e830062067cd04673a64",
+      "scripts copy/aws_deploy.sh": "074ca05323b9b1e9bc6a5eacb3eac4e339c921a1c54d16beca393a99863cfe81",
+      "scripts copy/deploy_plan.py": "e37bf627b5c1b2b3955ba8d9ddd2d211ab9259789000b0c061d30fe1ea7c1fc7",
+      "tests copy/test_deploy_workflow.py": "69cb033e27e462720149d631dbdd07d204e98b6c215c3a5ae94b5d8d9350dff5",
+      "src copy/sepsis_warning/lambda_app.py": "9b53e9bad96f682bd47e759ce2007ad3e9d1aa36d35ad29de2cc1a329388f79f",
+      "src copy/sepsis_warning/model_source.py": "bb509ff47f47950ae53024c42f684678c8cd664f6e8468dccb24870f856886d5"
+    },
+    "source_snapshot_sha256": "19791eb53af0de19254559f329e268e0bdf2d0c1cb47c9b01e3561a0727493e2",
+    "profile": "ECS training and MLflow; Evidently enabled; Lambda serving default",
+    "deployment_workflow_yaml_in_export": false,
+    "resource_conditions_and_backend_choices_checked": true
+  }
+}
